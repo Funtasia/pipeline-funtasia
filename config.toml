@@ -1,0 +1,15 @@
+[general]
+version="v0-06-08"
+
+[dir]
+blend="./blend"
+skp="./skp"
+backup_dir="./.blend/backup"
+working_dir="./.blend/working"
+
+[blender]
+exe="C:\\Program Files\\Blender Foundation\\Blender 5.0\\blender.exe"
+maxworkers=2
+
+[sketchup]
+maxworkers=6
