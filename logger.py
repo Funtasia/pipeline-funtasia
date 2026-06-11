@@ -25,12 +25,12 @@ class BufferHandler(logging.Handler):
         return records
 
 
-class PipelineLogger(logging.LoggerAdapter):
+class EndcoderPipelineLogger(logging.LoggerAdapter):
     def process(self, msg, kwargs):
         return f"[pipeline:{self.extra['pipeline']}] {msg}", kwargs
 
 
-def make_pipeline_logger(name: str) -> tuple[PipelineLogger, BufferHandler]:
+def make_pipeline_logger(name: str) -> tuple[EndcoderPipelineLogger, BufferHandler]:
     """
     Create an isolated logger + buffer for a single pipeline.
     Returns both so the registry can hold onto the buffer for the UI later.
@@ -50,7 +50,7 @@ def make_pipeline_logger(name: str) -> tuple[PipelineLogger, BufferHandler]:
     buffer = BufferHandler()
     logger.addHandler(buffer)
 
-    adapter = PipelineLogger(logger, {"pipeline": name})
+    adapter = EndcoderPipelineLogger(logger, {"pipeline": name})
     return adapter, buffer
 
 

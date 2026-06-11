@@ -13,14 +13,14 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 
 from util import load_config
-from registry import PipelineRegistry
+from encoder_registry import EncoderPipelineRegistry
 from logger import setup_logging
 from watcher import start_watching
 import threading
 
 setup_logging()
 config = load_config()
-registry = PipelineRegistry(config)
+registry = EncoderPipelineRegistry(config)
 
 # Start watcher in background thread
 root = Path(".skp") / Path(config["general"]["version"])

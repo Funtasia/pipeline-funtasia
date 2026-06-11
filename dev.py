@@ -1,12 +1,12 @@
 from pathlib import Path
 from util import load_config
-from registry import PipelineRegistry
+from encoder_registry import EncoderPipelineRegistry
 from watcher import start_watching
 from logger import setup_logging
 
 config = load_config()
 
-registry = PipelineRegistry(config)
+registry = EncoderPipelineRegistry(config)
 
 root = Path(".skp") / Path(config["general"]["version"])
 

@@ -1,9 +1,9 @@
-from pipeline import Pipeline
+from encoder_pipeline import EncoderPipeline
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
 
-class PipelineRegistry:
+class EncoderPipelineRegistry:
     def __init__(self, config):
         self.config = config
         self.pipelines = {}
@@ -13,7 +13,7 @@ class PipelineRegistry:
         level_name = level_path.name
 
         if level_name not in self.pipelines:
-            self.pipelines[level_name] = Pipeline(
+            self.pipelines[level_name] = EncoderPipeline(
                 self.config,
                 name=level_name
             )

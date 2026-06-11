@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 
 import sys
+import re
+import subprocess
 import random
 import urllib.parse
 import requests
@@ -10,7 +12,7 @@ import zipfile
 import io
 from logger import make_pipeline_logger, SUCCESS, setup_logging
 import logging
-from util import load_config, extract_url
+from util import load_config, extract_url, CONFIG_PATH
 
 
 class Vars:
@@ -24,16 +26,17 @@ class Vars:
         self.uses_left -= 1
 
 
-class Pipeline:
+class EncoderPipeline:
     def __init__(self, config, name):
+        self.config_path = CONFIG_PATH
         self.config = config
 
-        self.logger, self.buffer = make_pipeline_logger(name)  # <-- changed
+        self.logger, self.buffer = make_pipeline_logger(name)
 
         self.version = config["general"]["version"]
 
-        self.backup_dir = Path(config["dir"]["backup_dir"])
-        self.working_dir = Path(config["dir"]["working_dir"])
+        self.backup_dir = Path(config["repos"]["MAINDIR"]) / config["repos"]["files"] / "converted"
+        self.working_dir = Path(config["repos"]["MAINDIR"]) / config["repos"]["files"] / ".blend" 
 
         self.backup_dir.mkdir(parents=True, exist_ok=True)
         self.working_dir.mkdir(parents=True, exist_ok=True)
@@ -221,6 +224,100 @@ class Pipeline:
             full_working.write_bytes(data)
             self.success("extrated zipfile")
 
+    def _blend_path(self, stem: str) -> Path:
+        """
+        Resolve the .blend file location produced by 3dencoder.
+
+        Layout: config["repos"]["files"] / .blend / config["general"]["version"] / <stem>.blend
+        """
+        parent  = Path(self.config["repos"]["MAINDIR"])
+        rel_dir = Path(self.config["repos"]["files"]) / ".blend" / self.version
+        return parent / rel_dir / f"{stem}.blend"
+
+    # Re pattern that matches every line emitted by BlenderLogger:
+    #   [BLENDER] LEVEL    message text
+    _BLENDER_LINE = re.compile(
+        r"^\[BLENDER\]\s+(?P<level>\w+)\s+(?P<message>.+)$"
+    )
+
+    # Map BlenderLogger levelnames → logger methods on self
+    _LEVEL_DISPATCH: dict[str, str] = {
+        "DEBUG":   "log",
+        "INFO":    "log",
+        "SUCCESS": "success",
+        "WARNING": "error",
+        "ERROR":   "error",
+        "CRITICAL":"error",
+    }
+
+    def _relay_blender_line(self, raw: str) -> None:
+        """
+        Parse one line from Blender's stdout and re-emit via the encoder logger.
+
+        Structured lines ([BLENDER] LEVEL msg) are dispatched to the matching
+        level.  Unstructured lines (Blender's own boot noise) are emitted at
+        DEBUG / log level so they're visible but don't pollute the output.
+        """
+        line = raw.rstrip()
+        if not line:
+            return
+
+        m = self._BLENDER_LINE.match(line)
+        if m:
+            level   = m.group("level").upper()
+            message = m.group("message")
+            method  = self._LEVEL_DISPATCH.get(level, "log")
+            getattr(self, method)(f"[blender] {message}")
+        else:
+            # Blender boot / bpy noise — forward at info level with a prefix
+            self.log(f"[blender:raw] {line}")
+
+    def _run_blender(self, blend_path: Path, config_path: Path) -> bool:
+        """
+        Invoke Blender headlessly on *blend_path*, running blender_pipeline.py.
+
+        Streams stdout line-by-line into the encoder logger via _relay_blender_line().
+        Returns True on success (exit code 0), False otherwise.
+        """
+        cmd = [
+            "blender",
+            "-b", str(blend_path),
+            "-P", "blender_pipeline.py",
+            "--",
+            "--config", str(config_path),
+        ]
+
+        self.log(f"spawning blender: {blend_path.name}")
+        self.log(f"command: {' '.join(cmd)}")
+
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,   # merge stderr → stdout so one stream
+                text=True,
+                bufsize=1,                  # line-buffered
+            )
+
+            for line in proc.stdout:
+                self._relay_blender_line(line)
+
+            proc.wait()
+
+            if proc.returncode == 0:
+                self.success(f"blender exited cleanly (code 0)")
+                return True
+            else:
+                self.error(f"blender exited with code {proc.returncode}")
+                return False
+
+        except FileNotFoundError:
+            self.error("blender executable not found — is it on PATH?")
+            return False
+        except Exception as e:
+            self.error(f"blender subprocess error: {e}")
+            return False
+
     def run(self, filepath):
         fcode = self.upload(filepath)
         if not fcode:
@@ -232,14 +329,26 @@ class Pipeline:
 
         self.extract(zip_url)
 
+        # Derive the .blend path from the original .skp stem
+        stem       = Path(filepath).stem
+        blend_path = self._blend_path(stem)
+
+        if not blend_path.exists():
+            self.error(f".blend file not found after extraction: {blend_path}")
+            return
+
+        ok = self._run_blender(blend_path, Path(self.config_path))
+        if not ok:
+            self.error(f"blender pipeline failed for '{stem}' — aborting")
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python upload.py \"/path/to/file.skp\"")
+        print("Usage: python upload.py \"/path/to/file.skp\" ")
         sys.exit(1)
     setup_logging()
 
     CONFIG = load_config()
-    fp = sys.argv[1]
-    pipe = Pipeline(CONFIG, "test")
+    fp          = sys.argv[1]
+    pipe = EncoderPipeline(CONFIG, "test")
     pipe.run(fp)

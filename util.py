@@ -1,8 +1,11 @@
 import tomllib
 import re
+from pathlib import Path
+
+CONFIG_PATH = Path("config.toml")
 
 def load_config():
-    with open("config.toml", "rb") as f:
+    with open(CONFIG_PATH, "rb") as f:
         return tomllib.load(f)
     
 def extract_url(pattern,html):
