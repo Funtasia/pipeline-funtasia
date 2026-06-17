@@ -4,22 +4,7 @@ from pathlib import Path
 import shutil
 import platform
 
-def _version(path):
-    try:
-        p = subprocess.run(
-            [path, "--version"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
 
-        if p.returncode != 0:
-            return None
-
-        return p.stdout.splitlines()[0].strip()
-
-    except Exception:
-        return None
     
 def _windows_find_blender_all():
     found = []

@@ -29,7 +29,6 @@ def detect_git():
             })
 
     # 2. Windows fallback (Git Bash common location)
-    import platform
     if platform.system() == "Windows":
         possible = [
             r"C:\Program Files\Git\bin\git.exe",
