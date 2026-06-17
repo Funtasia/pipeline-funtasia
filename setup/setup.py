@@ -365,7 +365,9 @@ class Detector:
 class GitDetector:
     @staticmethod
     def detect_git(progress=None):
-        steps = 5
+        steps = 2
+        if platform.system() == "Windows":
+            steps =  5
         results = []
     
         # 1. PATH check
@@ -672,3 +674,4 @@ class console:
 
 if __name__ == "__main__":
     Detector.detection_component()
+    print("\033[0m]")
