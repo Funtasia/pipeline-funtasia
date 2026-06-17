@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """
 log_server.py — run alongside dev.py to serve pipeline logs over HTTP.
 

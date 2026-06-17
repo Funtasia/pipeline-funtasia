@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from pathlib import Path
