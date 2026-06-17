@@ -1,3 +1,5 @@
+#!/bin/sh
+
 detect_python() {
     local PYTHON_CMD=""
 
