@@ -259,7 +259,7 @@ class Detector:
 
     @staticmethod
     def _detectionrender():
-        Screen.clear()
+        Cursor.home()
 
         console.section("Detecting Software")
 
