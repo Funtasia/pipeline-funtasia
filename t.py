@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import tomllib
 from pprint import pprint
 from pathlib import Path

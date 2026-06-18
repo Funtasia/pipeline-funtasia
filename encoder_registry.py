@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from encoder_pipeline import EncoderPipeline
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor

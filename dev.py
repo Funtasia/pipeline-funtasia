@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from pathlib import Path
 from util import load_config
 from encoder_registry import EncoderPipelineRegistry
