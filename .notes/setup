@@ -1,0 +1,7 @@
+runs irm | iex  OR curl
+
+fetches shell script -> checks for python
+
+if python doesnt exist -> END
+
+run python setup.zip
