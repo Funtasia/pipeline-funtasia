@@ -1,2 +1,7 @@
 __pycache__/
 venv-pipeline/
+
+# For clone testing
+app-funtasia/
+pipeline-funtasia/
+3dfiles-funtasia/
