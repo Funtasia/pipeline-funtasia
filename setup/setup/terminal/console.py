@@ -13,6 +13,10 @@ class Console:
     @staticmethod
     def parse_escapecodes(escapecodes):
         return "\033[" + ";".join(escapecodes) + "m"
+    
+    @staticmethod
+    def colour_string(txt,colour):
+        return Console.parse_escapecodes(colour) + txt + Colour.RESET_CODE
 
     @staticmethod
     def doublebox(text,escapecodes=[Colour.RESET],mode:Mode=Mode.PRINT):

@@ -1,7 +1,6 @@
 import queue
-from terminal import Cursor
 from detectors import GitDetector, BlenderDetector, SketchupDetector
-from terminal import Console, Screen
+from terminal import Console, Screen, Cursor
 from concurrent.futures import ThreadPoolExecutor
 import sys
 import time
@@ -30,7 +29,7 @@ class Detector:
             bar = "#" * filled + " " * (bar_len - filled)
 
             print(
-                f"Searching for {name:<10} [{bar}] {cur}/{total}"
+                f"Searching for {name:<20} [{bar}] {cur}/{total}"
             )
 
         sys.stdout.flush()
