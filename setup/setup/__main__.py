@@ -6,7 +6,7 @@ if __name__ == "__main__":
         import colorama
         colorama.just_fix_windows_console()
     except ImportError:
-        continue
+        pass
     Detector.detection_component()
     Clone.clone_component()
     Cursor.show()
