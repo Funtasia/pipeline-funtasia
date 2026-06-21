@@ -60,7 +60,7 @@ class Clone:
             
     @staticmethod
     def _clonerender():
-        Cursor.move(15,0)
+        Cursor.move(1,0)
 
         Console.section("Cloning Repositories")
 
