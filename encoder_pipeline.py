@@ -11,7 +11,6 @@ import time
 import zipfile
 import io
 from logger import make_pipeline_logger, SUCCESS, setup_logging
-import logging
 from util import load_config, extract_url, CONFIG_PATH
 
 
