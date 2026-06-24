@@ -2,6 +2,7 @@ import queue
 from detectors import GitDetector, BlenderDetector, SketchupDetector
 from terminal import Console, Screen, Cursor
 from concurrent.futures import ThreadPoolExecutor
+from vars import Colour
 import sys
 import time
 
@@ -92,8 +93,8 @@ class Detector:
                 Detector.results[name] = f.result()
 
         print(
-            "\n\nDONE:",
-            *Detector.results.items(),
+            Console.colour_string("Search complete.", [Colour.GREEN]),
+            *(f"- {k:10}: {v or Console.colour_string("Not found", [Colour.RED])}" for k, v in Detector.results.items()),
             sep="\n"
         )
 

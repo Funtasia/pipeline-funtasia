@@ -1,0 +1,49 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Perm to create releases
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Create pyz of setup/setup/
+        run: |
+          cd setup
+          python3 -m zipapp setup/ -o setup.pyz -p '/bin/env python3' -c
+          zip -r setup_bundle.zip ./setup
+          chmod +x setup.pyz
+
+      - name: Upload setup.pyz artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-asset
+          path: setup/setup.pyz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')   # only on tag pushes
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-asset
+          path: .
+
+      - name: Create GitHub Release and upload asset
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          body: Automated release created by GitHub Action.
+          files: setup.pyz

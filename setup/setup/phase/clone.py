@@ -60,7 +60,7 @@ class Clone:
             
     @staticmethod
     def _clonerender():
-        Cursor.move(15,0)
+        Cursor.move(1,0)
 
         Console.section("Cloning Repositories")
 
@@ -130,8 +130,8 @@ class Clone:
 
             Clone._clonerender()
 
-        output = [f"{repo}: {Console.colour_string(url,[Colour.BLUE])}" for repo,url in Clone.repo_lnks.items()]
-        print(Console.colour_string("4 Repositories Cloned",[Colour.GREEN]),*output,sep="\n" )
+        output = [f"{repo:20}: {Console.colour_string(url,[Colour.BLUE])}" for repo,url in Clone.repo_lnks.items()]
+        print(Console.colour_string(f"{len(output)} Repositories Cloned",[Colour.GREEN]),*output,sep="\n" )
 
     @staticmethod
     def clone_component():
