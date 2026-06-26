@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pipeline Logs</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500&display=swap');
+
+  :root {
+    --bg:       #0d0f12;
+    --surface:  #13161b;
+    --border:   #1f242c;
+    --accent:   #00d4ff;
+    --success:  #00ff9d;
+    --error:    #ff4d6a;
+    --warn:     #ffb347;
+    --info:     #7b8fa6;
+    --text:     #c9d4e0;
+    --dim:      #4a5568;
+    --tab-h:    40px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 20px;
+    height: 52px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  header h1 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  #status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--dim);
+    transition: background 0.3s;
+    flex-shrink: 0;
+  }
+  #status-dot.live { background: var(--success); box-shadow: 0 0 6px var(--success); }
+  #status-dot.error { background: var(--error); }
+
+  #status-text {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--dim);
+  }
+
+  .spacer { flex: 1; }
+
+  #clear-btn {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--dim);
+    padding: 4px 12px;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  #clear-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Tab bar ── */
+  #tab-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    padding: 0 20px;
+    height: var(--tab-h);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    overflow-x: auto;
+  }
+
+  .tab {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    padding: 0 16px;
+    height: 32px;
+    border: 1px solid transparent;
+    border-bottom: none;
+    background: none;
+    color: var(--dim);
+    cursor: pointer;
+    border-radius: 4px 4px 0 0;
+    white-space: nowrap;
+    transition: color 0.15s, background 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .tab:hover { color: var(--text); background: var(--surface); }
+  .tab.active {
+    color: var(--accent);
+    background: var(--surface);
+    border-color: var(--border);
+  }
+
+  .tab-badge {
+    background: var(--accent);
+    color: var(--bg);
+    font-size: 9px;
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 8px;
+    min-width: 16px;
+    text-align: center;
+    display: none;
+  }
+  .tab-badge.visible { display: inline-block; }
+
+  #no-pipelines {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--dim);
+    padding: 8px 0;
+    display: none;
+  }
+
+  /* ── Log panels ── */
+  #panels {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .panel {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+  }
+  .panel.active { display: flex; }
+
+  .log-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 20px;
+    scroll-behavior: smooth;
+  }
+
+  .log-scroll::-webkit-scrollbar { width: 6px; }
+  .log-scroll::-webkit-scrollbar-track { background: transparent; }
+  .log-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .log-entry {
+    display: grid;
+    grid-template-columns: 80px 140px 1fr;
+    gap: 0 12px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    line-height: 1.8;
+    border-bottom: 1px solid transparent;
+    animation: fadeIn 0.15s ease;
+  }
+  .log-entry:hover { background: var(--surface); border-radius: 3px; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(2px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .col-level { font-weight: 600; }
+  .col-func  { color: var(--dim); }
+  .col-msg   { color: var(--text); word-break: break-all; }
+
+  .level-INFO    { color: var(--info); }
+  .level-SUCCESS { color: var(--success); }
+  .level-ERROR   { color: var(--error); }
+  .level-WARNING { color: var(--warn); }
+  .level-DEBUG   { color: var(--dim); }
+
+  /* ── Status bar ── */
+  #status-bar {
+    height: 28px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 20px;
+    flex-shrink: 0;
+  }
+
+  .stat {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--dim);
+  }
+  .stat span { color: var(--text); }
+
+  .empty-state {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 8px;
+    color: var(--dim);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+  }
+  .empty-state .icon { font-size: 28px; opacity: 0.3; }
+</style>
+</head>
+<body>
+
+<header>
+  <div id="status-dot"></div>
+  <h1>Pipeline Logs</h1>
+  <span id="status-text">connecting…</span>
+  <div class="spacer"></div>
+  <button id="clear-btn" onclick="clearActive()">Clear</button>
+</header>
+
+<div id="tab-bar">
+  <span id="no-pipelines">No active pipelines yet</span>
+</div>
+
+<div id="panels"></div>
+
+<div id="status-bar">
+  <div class="stat">poll <span id="stat-interval">2s</span></div>
+  <div class="stat">total <span id="stat-total">0</span></div>
+  <div class="stat">active <span id="stat-active">0</span></div>
+</div>
+
+<script>
+  const API = '';  // same origin — log_server.py serves this file
+  const POLL_MS = 2000;
+
+  // State
+  const pipelines = {};   // name -> { tab, panel, scroll, entries[], count, unread }
+  let activeTab = null;
+  let totalCount = 0;
+
+  // ── DOM helpers ─────────────────────────────────────────────────
+
+  function setStatus(state, text) {
+    const dot = document.getElementById('status-dot');
+    dot.className = state;
+    document.getElementById('status-text').textContent = text;
+  }
+
+  function updateStats() {
+    document.getElementById('stat-total').textContent = totalCount;
+    document.getElementById('stat-active').textContent = Object.keys(pipelines).length;
+  }
+
+  // ── Tab / panel creation ─────────────────────────────────────────
+
+  function ensurePipeline(name) {
+    if (pipelines[name]) return;
+
+    // Tab
+    const tab = document.createElement('button');
+    tab.className = 'tab';
+    tab.innerHTML = `${name} <span class="tab-badge" id="badge-${name}">0</span>`;
+    tab.onclick = () => activateTab(name);
+    document.getElementById('tab-bar').appendChild(tab);
+    document.getElementById('no-pipelines').style.display = 'none';
+
+    // Panel
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    panel.id = `panel-${name}`;
+
+    const scroll = document.createElement('div');
+    scroll.className = 'log-scroll';
+    scroll.id = `scroll-${name}`;
+
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.id = `empty-${name}`;
+    empty.innerHTML = `<div class="icon">◎</div><div>Waiting for logs…</div>`;
+    scroll.appendChild(empty);
+
+    panel.appendChild(scroll);
+    document.getElementById('panels').appendChild(panel);
+
+    pipelines[name] = { tab, panel, scroll, count: 0, unread: 0 };
+
+    if (!activeTab) activateTab(name);
+  }
+
+  function activateTab(name) {
+    if (activeTab) {
+      pipelines[activeTab].tab.classList.remove('active');
+      pipelines[activeTab].panel.classList.remove('active');
+    }
+    activeTab = name;
+    pipelines[name].tab.classList.add('active');
+    pipelines[name].panel.classList.add('active');
+
+    // Clear unread badge
+    pipelines[name].unread = 0;
+    const badge = document.getElementById(`badge-${name}`);
+    badge.textContent = '0';
+    badge.classList.remove('visible');
+  }
+
+  // ── Log rendering ─────────────────────────────────────────────────
+
+  function appendRecords(name, records) {
+    if (!records.length) return;
+
+    const state = pipelines[name];
+    const scroll = state.scroll;
+
+    // Remove empty state placeholder
+    const empty = document.getElementById(`empty-${name}`);
+    if (empty) empty.remove();
+
+    const atBottom = scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 40;
+
+    for (const r of records) {
+      const row = document.createElement('div');
+      row.className = 'log-entry';
+
+      const lvlClass = `level-${r.level}`;
+      row.innerHTML = `
+        <span class="col-level ${lvlClass}">${r.level}</span>
+        <span class="col-func">${r.func}</span>
+        <span class="col-msg">${escHtml(r.message)}</span>
+      `;
+      scroll.appendChild(row);
+    }
+
+    state.count += records.length;
+    totalCount += records.length;
+
+    if (atBottom) scroll.scrollTop = scroll.scrollHeight;
+
+    // Unread badge when tab is not active
+    if (activeTab !== name) {
+      state.unread += records.length;
+      const badge = document.getElementById(`badge-${name}`);
+      badge.textContent = state.unread > 99 ? '99+' : state.unread;
+      badge.classList.add('visible');
+    }
+
+    updateStats();
+  }
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;');
+  }
+
+  // ── Clear ─────────────────────────────────────────────────────────
+
+  function clearActive() {
+    if (!activeTab) return;
+    const scroll = pipelines[activeTab].scroll;
+    scroll.innerHTML = '';
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.id = `empty-${activeTab}`;
+    empty.innerHTML = `<div class="icon">◎</div><div>Waiting for logs…</div>`;
+    scroll.appendChild(empty);
+  }
+
+  // ── Polling ───────────────────────────────────────────────────────
+
+  async function pollLevels() {
+    try {
+      const res = await fetch(`${API}/levels`);
+      const data = await res.json();
+      data.levels.forEach(ensurePipeline);
+      setStatus('live', 'live');
+    } catch {
+      setStatus('error', 'server unreachable');
+    }
+  }
+
+  async function pollLogs() {
+    for (const name of Object.keys(pipelines)) {
+      try {
+        const res = await fetch(`${API}/logs/${name}`);
+        const data = await res.json();
+        appendRecords(name, data.records || []);
+      } catch {
+        // individual pipeline poll failure — ignore
+      }
+    }
+  }
+
+  async function tick() {
+    await pollLevels();
+    await pollLogs();
+  }
+
+  tick();
+  setInterval(tick, POLL_MS);
+  document.getElementById('stat-interval').textContent = `${POLL_MS/1000}s`;
+</script>
+</body>
+</html>
