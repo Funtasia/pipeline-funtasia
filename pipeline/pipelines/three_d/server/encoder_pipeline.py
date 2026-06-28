@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-import sys
 import re
 import subprocess
 import random
@@ -10,8 +9,8 @@ from pathlib import Path
 import time
 import zipfile
 import io
-from logger import make_pipeline_logger, SUCCESS, setup_logging
-from util import load_config, extract_url, CONFIG_PATH
+from ._log import initEncoderLogger
+import json
 
 
 class Vars:
@@ -27,34 +26,49 @@ class Vars:
 
 class EncoderPipeline:
     def __init__(self, config, name):
-        self.config_path = CONFIG_PATH
         self.config = config
 
-        self.logger, self.buffer = make_pipeline_logger(name)
+        self._log, self.buffer = initEncoderLogger(name)
 
         self.version = config["general"]["version"]
 
         self.backup_dir = Path(config["repos"]["MAINDIR"]) / config["repos"]["files"] / "converted"
         self.working_dir = Path(config["repos"]["MAINDIR"]) / config["repos"]["files"] / ".blend" 
 
+        self.blender_script = Path()
+
         self.backup_dir.mkdir(parents=True, exist_ok=True)
         self.working_dir.mkdir(parents=True, exist_ok=True)
 
         self.vars = None
 
+    @staticmethod
+    def _gen_paths(config):
+        parent = Path(config["repos"]["root"])
+        data_root = parent / config["repos"]["data"]
+        pipeline_root = parent / config["repos"]["pipeline"]
+        test_dir = data_root / "model" / "testing"
+        work_dir = data_root / "model" / "blender"
+        blender_script = pipeline_root / "pipeline" / "pipelines"
+
     def log(self, msg):
-        self.logger.info(msg, stacklevel=2)
+        self._log.info(msg, stacklevel=2)
 
     def error(self, msg):
-        self.logger.error(msg, stacklevel=2)
+        self._log.error(msg, stacklevel=2)
 
     def success(self, msg):
-        self.logger.log(SUCCESS, msg, stacklevel=2)
+        self._log.success(msg, stacklevel=2)
 
+    @staticmethod
+    def extract_url(pattern,html):
+        m = re.search(pattern, html)
+        return m.group(1) if m else None
+    
     def gen_vars(self):
         html = requests.get("https://3dencoder.com/SKP-to-blend", timeout=10).text
 
-        upload_url = extract_url(r'uploadURL\s*:\s*"([^"]+)"', html)
+        upload_url = EncoderPipeline.extract_url(r'uploadURL\s*:\s*"([^"]+)"', html)
 
         upload_params = urllib.parse.parse_qs(urllib.parse.urlparse(upload_url).query)
 
@@ -271,7 +285,7 @@ class EncoderPipeline:
             # Blender boot / bpy noise — forward at info level with a prefix
             self.log(f"[blender:raw] {line}")
 
-    def _run_blender(self, blend_path: Path, config_path: Path) -> bool:
+    def _run_blender(self, blend_path: Path, config: dict) -> bool:
         """
         Invoke Blender headlessly on *blend_path*, running blender_pipeline.py.
 
@@ -281,9 +295,9 @@ class EncoderPipeline:
         cmd = [
             "blender",
             "-b", str(blend_path),
-            "-P", "blender_pipeline.py",
+            "-P", self.blender_script,
             "--",
-            "--config", str(config_path),
+            "--config", json.dumps(config),
         ]
 
         self.log(f"spawning blender: {blend_path.name}")
@@ -336,18 +350,7 @@ class EncoderPipeline:
             self.error(f".blend file not found after extraction: {blend_path}")
             return
 
-        ok = self._run_blender(blend_path, Path(self.config_path))
+        ok = self._run_blender(blend_path,self.config)
         if not ok:
             self.error(f"blender pipeline failed for '{stem}' — aborting")
 
-
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python upload.py \"/path/to/file.skp\" ")
-        sys.exit(1)
-    setup_logging()
-
-    CONFIG = load_config()
-    fp          = sys.argv[1]
-    pipe = EncoderPipeline(CONFIG, "test")
-    pipe.run(fp)

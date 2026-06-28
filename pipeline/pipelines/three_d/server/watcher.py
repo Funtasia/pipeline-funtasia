@@ -20,7 +20,7 @@ class SKPHandler(FileSystemEventHandler):
         self.registry.trigger(path)
 
 
-def start_watching(root_path, registry):
+def init_watcher(root_path, registry):
     event_handler = SKPHandler(registry)
     observer = Observer()
 

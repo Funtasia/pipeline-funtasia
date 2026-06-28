@@ -1,28 +1,26 @@
 #!/usr/bin/env python3
 
+# Blender Specific modules
 import bpy
+import bmesh
+from mathutils import Vector
+
+# Python modules
 import os
 import math
 import time
-import bmesh
-from mathutils import Vector
 from pathlib import Path
 import logging
 import json
-import tomllib
 
 
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
+import logging
 
-# Custom level sitting between INFO (20) and WARNING (30) — mirrors encoder_pipeline
 SUCCESS = 25
 logging.addLevelName(SUCCESS, "SUCCESS")
-
-# Log format that _parse_blender_line() in encoder_pipeline.py keys off:
-#   [BLENDER] LEVEL   message text
-_LOG_FORMAT = "[BLENDER] %(levelname)-8s %(message)s"
 
 
 class BlenderLogger(logging.LoggerAdapter):
@@ -30,6 +28,7 @@ class BlenderLogger(logging.LoggerAdapter):
     Thin adapter matching the log/error/success interface used by EncoderPipeline.
     All output goes to stdout (Blender -b mode forwards stdout to the parent process).
     """
+    _LOG_FORMAT = "[BLENDER] %(levelname)-8s %(message)s"
 
     def __init__(self, name: str = "blender_pipeline") -> None:
         logger = logging.getLogger(name)
@@ -37,7 +36,7 @@ class BlenderLogger(logging.LoggerAdapter):
 
         if not logger.handlers:
             handler = logging.StreamHandler()          # → stdout
-            handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+            handler.setFormatter(logging.Formatter(BlenderLogger._LOG_FORMAT))
             logger.addHandler(handler)
 
         super().__init__(logger, extra={})
@@ -55,21 +54,6 @@ class BlenderLogger(logging.LoggerAdapter):
 
     def success(self, msg: str) -> None:
         self.logger.log(SUCCESS, msg, stacklevel=2)
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _get_context():
-    return bpy.context
-
-def _get_data():
-    return bpy.data
-
-def _get_scene():
-    return bpy.context.scene
-
 
 # ---------------------------------------------------------------------------
 # Pipeline
@@ -149,14 +133,13 @@ class BlenderPipeline:
     # ---------------------------------------------------------------------------
 
     @staticmethod
-    def _gen_path(config: dict) -> tuple[Path, Path, Path]:
+    def _gen_path(config: dict) -> tuple[Path, Path]:
         """Resolve all export and config paths from the pipeline config."""
         ver    = config["general"]["version"]
-        parent = Path(config["repos"]["MAINDIR"])
-        files_export  = parent / config["repos"]["files"]    / ".glb"     / ver
-        assets_export = parent / config["repos"]["assets"]   / "models"   / ver
-        export_config = parent / config["repos"]["pipeline"] / ".config"  / "export.json"
-        return files_export, assets_export, export_config
+        parent = Path(config["repos"]["root"])
+        assets_export = parent / config["repos"]["assets"]   / "model"
+        export_config = parent / config["repos"]["pipeline"] / ".blender"  / "export.json"
+        return assets_export, export_config
 
     # ---------------------------------------------------------------------------
     # Stage 1 — Import clean-up
@@ -514,20 +497,12 @@ class BlenderPipeline:
             EXPORT_CONFIG = json.load(f)
 
         blend_path  = Path(bpy.path.abspath(D.filepath))
-        export_name = f"{blend_path.stem}-{self.version}.glb"
+        export_path = self.assets_path / f"{blend_path.stem}.glb"
 
-        export_paths = [
-            self.files_path  / export_name,
-            self.assets_path / export_name,
-        ]
-
-        for path in export_paths:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            self.log(f"exporting to: {path}")
-            bpy.ops.export_scene.gltf(filepath=str(path), **EXPORT_CONFIG)
-            self.success(f"saved: {path.name}")
-
-        self.success(f"exported '{export_name}' to {len(export_paths)} locations")
+        export_path.parent.mkdir(parents=True, exist_ok=True)
+        self.log(f"exporting to: {export_path}")
+        bpy.ops.export_scene.gltf(filepath=str(export_path), **EXPORT_CONFIG)
+        self.success(f"saved: {export_path.name}")
 
     # ---------------------------------------------------------------------------
     # Orchestration
@@ -562,16 +537,15 @@ class BlenderPipeline:
 if __name__ == "__main__":
     import argparse
     import sys
+    import json
 
     # Blender passes everything after '--' to the script's argv
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     parser = argparse.ArgumentParser(prog="blender_pipeline")
-    parser.add_argument("--config", required=True, help="Path to pipeline config JSON")
+    parser.add_argument("--config", required=True, type=json.loads)
     args = parser.parse_args(argv)
 
-    with open(args.config, "rb") as f:
-        config = tomllib.load(f)
+    config = args.config
     
-
     pipeline = BlenderPipeline(config)
     pipeline.run()

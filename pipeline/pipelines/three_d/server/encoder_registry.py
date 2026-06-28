@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from encoder_pipeline import EncoderPipeline
+from .encoder_pipeline import EncoderPipeline
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
@@ -23,7 +23,6 @@ class EncoderPipelineRegistry:
         return self.pipelines[level_name]
 
     def trigger(self, file_path: Path):
-        # .skp/v1/level_a/model.skp
         level_path = file_path.parent
 
         pipe = self.get_pipeline(level_path)

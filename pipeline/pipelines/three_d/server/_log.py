@@ -27,12 +27,38 @@ class BufferHandler(logging.Handler):
         return records
 
 
-class EndcoderPipelineLogger(logging.LoggerAdapter):
-    def process(self, msg, kwargs):
-        return f"[pipeline:{self.extra['pipeline']}] {msg}", kwargs
+
+class EncoderPipelineLogger(logging.LoggerAdapter):
+    """
+    Logger adapter for EncoderPipeline with consistent formatting and helper methods.
+    Output goes to stdout.
+    """
+    _LOG_FORMAT = "[PIPELINE:%(pipeline)s] %(levelname)-8s %(message)s"
+
+    def __init__(self, pipeline: str, name: str = "encoder_pipeline") -> None:
+        logger = logging.getLogger(name)
+        logger.setLevel(logging.DEBUG)
+
+        if not logger.handlers:
+            handler = logging.StreamHandler()  # stdout
+            handler.setFormatter(logging.Formatter(self._LOG_FORMAT))
+            logger.addHandler(handler)
+
+        super().__init__(logger, extra={"pipeline": pipeline})
+
+    # Convenience wrappers ------------------------------------------------
+
+    def info(self, msg: str, *args, **kwargs) -> None:
+        self.logger.info(msg, *args, stacklevel=2, **kwargs)
+
+    def error(self, msg: str, *args, **kwargs) -> None:
+        self.logger.error(msg, *args, stacklevel=2, **kwargs)
+
+    def success(self, msg: str) -> None:
+        self.logger.log(SUCCESS, msg, stacklevel=2)
 
 
-def make_pipeline_logger(name: str) -> tuple[EndcoderPipelineLogger, BufferHandler]:
+def initEncoderLogger(name: str) -> tuple[EncoderPipelineLogger, BufferHandler]:
     """
     Create an isolated logger + buffer for a single pipeline.
     Returns both so the registry can hold onto the buffer for the UI later.
@@ -52,11 +78,11 @@ def make_pipeline_logger(name: str) -> tuple[EndcoderPipelineLogger, BufferHandl
     buffer = BufferHandler()
     logger.addHandler(buffer)
 
-    adapter = EndcoderPipelineLogger(logger, {"pipeline": name})
+    adapter = EncoderPipelineLogger(logger, {"pipeline": name})
     return adapter, buffer
 
 
-def setup_logging():
+def init_logging():
     logging.basicConfig(
         format="[%(levelname)-7s] [%(funcName)-15s] %(message)s",
         level=logging.INFO

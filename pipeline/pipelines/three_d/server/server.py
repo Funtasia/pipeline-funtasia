@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-log_server.py — run alongside dev.py to serve pipeline logs over HTTP.
+server.py — run alongside dev.py to serve pipeline logs over HTTP.
 
 Usage:
     uvicorn log_server:app --reload --port 8000
@@ -14,20 +14,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pathlib import Path
 
-from util import load_config
-from encoder_registry import EncoderPipelineRegistry
-from logger import setup_logging
-from watcher import start_watching
+from config import Config
+from .encoder_registry import EncoderPipelineRegistry
+from ._log import init_logging
+from .watcher import init_watcher
 import threading
 
-setup_logging()
-config = load_config()
+init_logging()
+config = Config.load()
 registry = EncoderPipelineRegistry(config)
 
 # Start watcher in background thread
 root = Path(".skp") / Path(config["general"]["version"])
 watcher_thread = threading.Thread(
-    target=start_watching,
+    target=init_watcher,
     args=(root, registry),
     daemon=True
 )
