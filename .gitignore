@@ -1,5 +1,6 @@
 __pycache__/
 venv-pipeline/
+dist/
 
 # For clone testing
 app-funtasia/

@@ -1,0 +1,45 @@
+[project]
+name = "funtasia-pipeline"
+dynamic = ["version"]
+requires-python = ">= 3.8"
+description = "Tool to generate assets for Funtasia 3D map"
+readme = "README.md"
+
+classifiers = [
+  "Development Status :: 1 - Planning",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Topic :: Software Development :: Build Tools",
+  "Natural Language :: English",
+
+  # Specify the Python versions you support here.
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12"
+]
+
+[project.optional-dependencies]
+colorama = ["colorama==0.4.6; os_name == 'nt'"]
+
+[project.scripts]
+nipple = "pipeline:cli"
+fuNtasIaPiPeLinE = "pipeline:cli"
+pipeline = "pipeline:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/pipeline/__about__.py"
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/.agent",
+  "/.blender",
+  "/.github",
+  "/.notes",
+  "/docs",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pipeline"]
