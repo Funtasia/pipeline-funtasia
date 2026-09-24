@@ -21,9 +21,9 @@ classifiers = [
 colorama = ["colorama==0.4.6; os_name == 'nt'"]
 
 [project.scripts]
-nipple = "pipeline:cli"
-fuNtasIaPiPeLinE = "pipeline:cli"
-pipeline = "pipeline:cli"
+nipple = "pipeline.cli:main"
+fuNtasIaPiPeLinE = "pipeline.cli:main"
+pipeline = "pipeline.cli:main"
 
 [build-system]
 requires = ["hatchling"]
