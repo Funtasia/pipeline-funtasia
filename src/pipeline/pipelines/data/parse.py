@@ -1,26 +1,30 @@
-import json
 import csv
+import json
 
-from pprint import pprint 
+FILENAME = "Booth Data - Booth Data.csv"
 
-with open("Booth Data - Booth Data.csv", "r",encoding="UTF-8") as file:
-    data = list(csv.DictReader(file))
-    pprint(data)
+def funtasia_csv_to_json(filename_in, filename_out="funtasia_data.json"):
 
-json_data = {}
+    json_data = {}
 
-for i in data:
-    del i["sort_helper"]
-    booth_id = i.pop("booth_id")
-    level = i.pop("level").lower()
+    with open(filename_in, "r",encoding="UTF-8") as file:
 
-    # Empty list if empty string
-    i["tags"]       = i["tags"]       and [tag.strip() for tag in i["tags"].split(",")      ] or []
-    i["invis_tags"] = i["invis_tags"] and [tag.strip() for tag in i["invis_tags"].split(",")] or []
+        for row in csv.DictReader(file):
+            del row["sort_helper"]
+            booth_id = row.pop("booth_id")
+            level = row.pop("level").lower()
 
-    if level not in json_data:
-        json_data[level] = {}
-    json_data[level][booth_id] = i
+            # Empty list if empty string
+            row["tags"]       = row["tags"]       and [tag.strip() for tag in row["tags"].split(",")      ] or []
+            row["invis_tags"] = row["invis_tags"] and [tag.strip() for tag in row["invis_tags"].split(",")] or []
 
-with open("funtasia_data.json", "w") as file:
-    json.dump(json_data, file, indent=2)
+            if level not in json_data:
+                json_data[level] = {}
+
+            json_data[level][booth_id] = row
+
+    with open(filename_out, "w") as file:
+        json.dump(json_data, file, indent=2)
+
+if __name__ == "__main__":
+    funtasia_csv_to_json(FILENAME)
