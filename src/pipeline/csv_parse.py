@@ -1,9 +1,11 @@
 import csv
 import json
 
+__all__ = ("csv_data_to_json")
+
 FILENAME = "Booth Data - Booth Data.csv"
 
-def funtasia_csv_to_json(filename_in, filename_out="funtasia_data.json"):
+def csv_data_to_json(filename_in, filename_out="funtasia_data.json"):
 
     json_data = {}
 

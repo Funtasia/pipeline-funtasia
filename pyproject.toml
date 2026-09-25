@@ -5,6 +5,11 @@ requires-python = ">= 3.8"
 description = "Tool to generate assets for Funtasia 3D map"
 readme = "README.md"
 
+dependencies = [
+  "typer>=0.27",
+  "colorama>=0.4.6; os_name == 'nt'"
+]
+
 classifiers = [
   "Development Status :: 1 - Planning",
   "Environment :: Console",
@@ -17,13 +22,10 @@ classifiers = [
   "Programming Language :: Python :: 3.12"
 ]
 
-[project.optional-dependencies]
-colorama = ["colorama==0.4.6; os_name == 'nt'"]
-
 [project.scripts]
-nipple = "pipeline.cli:main"
-fuNtasIaPiPeLinE = "pipeline.cli:main"
-pipeline = "pipeline.cli:main"
+nipple = "pipeline.cli:app"
+fuNtasIaPiPeLinE = "pipeline.cli:app"
+pipeline = "pipeline.cli:app"
 
 [build-system]
 requires = ["hatchling"]
