@@ -9,13 +9,14 @@ app = typer.Typer(no_args_is_help=True)
 @app.command("parse-data")
 def parse_data(
     filename_in: str, 
-    filename_out:str=typer.Argument("funtasia_data.json")
+    filename_out: str = typer.Argument("funtasia_data.json"),
+    prefer_ascii: bool = True
 ):
     """
     Parse csv booth data in filename_in and
     output json data to filename_out
     """
-    csv_data_to_json(filename_in, filename_out)
+    csv_data_to_json(filename_in, filename_out, prefer_ascii)
 
 @app.command()
 def model():
