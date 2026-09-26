@@ -2,3 +2,9 @@ __pycache__/
 venv-pipeline/
 .skp/
 .blend/
+dist/
+
+# For clone testing
+app-funtasia/
+pipeline-funtasia/
+3dfiles-funtasia/
