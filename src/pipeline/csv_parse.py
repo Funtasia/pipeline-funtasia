@@ -1,15 +1,12 @@
 import csv
 import json
+import re
 
 __all__ = ("csv_data_to_json")
-
-FILENAME = "Booth Data - Booth Data.csv"
 
 def convert_ascii(s: str):
     if s.isascii():
         return s
-
-    import re
 
     def replace(m: re.match):
         m = ord(m.group(0))
@@ -55,4 +52,4 @@ def csv_data_to_json(filename_in, filename_out="funtasia_data.json", prefer_asci
         json.dump(json_data, file, indent=2)
 
 if __name__ == "__main__":
-    funtasia_csv_to_json(FILENAME)
+    csv_data_to_json("Booth Data - Booth Data.csv")
