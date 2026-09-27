@@ -82,12 +82,12 @@ def clone(force: bool = False, ssh = False):
     if ssh:
         repo_urls = [
             "git@github.com:Funtasia/app-funtasia.git",
-            "git@github.com:Funtasia/data-funtasia.git"
+            "git@github.com:Funtasia/3dfiles-funtasia.git"
         ]
     else:
         repo_urls = [
             "https://github.com/Funtasia/app-funtasia.git",
-            "https://github.com/Funtasia/data-funtasia.git",
+            "https://github.com/Funtasia/3dfiles-funtasia.git",
         ]
 
     for repo in repo_urls:
