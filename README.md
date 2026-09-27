@@ -7,6 +7,7 @@ The script obtains a set of config info: `cuid`,`s` and `j` via making a request
 The zip file is then unzipped and stored. The main pipeline will then call on a script to post process the blender file, which exports the final model accordingly.
 
 # Quickstart
+
 ## Prerequisites
 * Python >= 3.13 (older Python MIGHT be supported, but no guarantees)
 * Git
@@ -29,5 +30,11 @@ pip install .
 ```sh
 nipple
 ```
+
+# Installation of Relevant Resources
+
+**Blender**
+
+Blender can be downloaded via Steam or from the [official blender website](https://www.blender.org/download/). 
 
 # I'm ngl i honestly dk what to put here, whoever you are, you got this trust.
