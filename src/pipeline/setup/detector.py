@@ -1,3 +1,8 @@
+#type: ignore
+"""
+Deprecated/TODO. At most only need to detect Blender.
+"""
+
 import queue
 from detectors import GitDetector, BlenderDetector, SketchupDetector
 from terminal import Console, Screen, Cursor
