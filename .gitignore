@@ -1,7 +1,7 @@
 __pycache__/
 venv-pipeline/
-.skp/
-.blend/
+
+
 dist/
 
 # For clone testing
