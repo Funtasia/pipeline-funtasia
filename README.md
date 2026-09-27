@@ -15,26 +15,25 @@ The zip file is then unzipped and stored. The main pipeline will then call on a 
 * Sketchup (For Linux: installed as WINE app)
 
 ## For *NIX:
-* Create a virtual environment and activate it
-```sh
-python3 -m venv venv-pipeline
-source venv-pipeline/bin/activate
 ```
-* Make and install the package
-```sh
-pip install hatch
-pip install .
+curl -fsSL https://github.com/Funtasia/pipeline-funtasia/raw/refs/heads/main/setup/setup.sh | sh
 ```
 
-* Now `nipple` is installed
-```sh
-nipple
+## For Windows:
 ```
+irm https://github.com/Funtasia/pipeline-funtasia/raw/refs/heads/main/setup/setup.ps1 | iex
+```
+
+## Manual Install:
+1. Create a Python virtual environment (`python -m venv .venv`)
+2. Activate the virtual environment
+3. `pip install git+https://github.com/Funtasia/pipeline-funtasia`
+4. `nipple setup`
 
 # Installation of Relevant Resources
 
 **Blender**
 
-Blender can be downloaded via Steam or from the [official blender website](https://www.blender.org/download/). 
+Blender can be downloaded via Steam, from the [official blender website](https://www.blender.org/download/), or from a package manager of your choice. Ensure that it is available in $PATH.
 
 # I'm ngl i honestly dk what to put here, whoever you are, you got this trust.
