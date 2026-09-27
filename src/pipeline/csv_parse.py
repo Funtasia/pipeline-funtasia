@@ -1,3 +1,4 @@
+from pathlib import Path
 import csv
 import json
 import re
@@ -25,11 +26,15 @@ def convert_ascii(s: str):
 
     res = re.sub(r"[\u2013\u2014\u2015\u2018\u2019\u201C\u201D]", replace, s)
 
-def csv_data_to_json(filename_in, filename_out="funtasia_data.json", prefer_ascii=True):
+def csv_data_to_json(
+    filename_in: Path,
+    filename_out: Path = Path("funtasia_data.json"),
+    prefer_ascii: bool = True
+):
 
     json_data = {}
 
-    with open(filename_in, "r",encoding="UTF-8") as file:
+    with open(filename_in, "r", encoding="UTF-8") as file:
 
         for entry in csv.DictReader(file):
             del entry["sort_helper"]
@@ -52,4 +57,4 @@ def csv_data_to_json(filename_in, filename_out="funtasia_data.json", prefer_asci
         json.dump(json_data, file, indent=2)
 
 if __name__ == "__main__":
-    csv_data_to_json("Booth Data - Booth Data.csv")
+    csv_data_to_json(Path("Booth Data - Booth Data.csv"))
