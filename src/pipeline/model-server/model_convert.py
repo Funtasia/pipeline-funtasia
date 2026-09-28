@@ -10,9 +10,12 @@ import zipfile
 import asyncio
 import httpx
 
+from ..config import load_config
+
 class Method(Enum):
     GET = "get"
-    POST = "post"from ..config import load_config
+    POST = "post"
+    
 
 async def make_request(
     client: httpx.AsyncClient, 
