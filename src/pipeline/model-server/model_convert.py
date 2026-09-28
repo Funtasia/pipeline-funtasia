@@ -1,0 +1,373 @@
+from pathlib import Path
+from urllib.parse import urlencode, urlunsplit, parse_qs, urlparse
+
+import re
+import time
+import io
+import zipfile
+import asyncio
+import httpx
+
+from ..config import load_config
+
+async def make_request(client, url, method, *, timeout=120, content=None):
+       
+    try:
+        if method == "GET":
+            response = await client.get(
+                url,
+                timeout=timeout
+            )
+        elif method == "POST":
+            response = await client.post(
+                url,
+                timeout=timeout,
+                content=content
+            )
+
+        response.raise_for_status()
+        return response
+
+    except Exception as e:
+        raise e  
+
+    
+class aobject(object):
+    async def __new__(cls,*a,**kw):
+        instance = super().__new__(cls)
+        await instance.__init__(*a,**kw)
+        return instance
+
+    async def __init__(self):
+        pass
+
+class ConvertSkp(aobject):
+
+    config = load_config()
+
+    script_path = Path(config["repos"]["root"]) / config["blender"]["script"]
+
+    blender_executable = Path(config["blender"]["exe"])
+
+    blender_semaphore = asyncio.Semaphore(1)
+
+    NO_OF_ATTEMPTS = 1
+    # to be set in config?    
+
+    async def __init__(self,filepath: Path):
+        self.filepath = filepath
+        self.filename = filepath.name
+        self.filesize = filepath.stat().st_size
+
+        self.savefolder = Path("./.blend") / filepath.parent.relative_to(".skp") / filepath.name
+        self.savefolder.parent.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+
+        self.zip_path = self.savefolder.with_suffix(".zip")
+
+        if self.zip_path.is_file():
+            self.zip_path.unlink()
+
+        self.blend_path = self.savefolder.with_suffix(".blend")
+
+        if self.blend_path.is_file():
+            self.blend_path.unlink()
+        
+        self.file_params = {
+            "name":filepath.name,
+            "size":filepath.stat().st_size
+        }
+
+
+    async def get_env(self,client):
+            
+        response = await make_request(
+            client,
+            "https://3dencoder.com/SKP-to-blend",
+            "GET",
+            timeout = 10
+        )
+    
+        html = response.text
+    
+        m = re.search(
+            r'uploadURL\s*:\s*"([^"]+)"',
+            html
+        ).group(1)     
+    
+        upload_params = parse_qs(
+            urlparse(m).query
+        )
+    
+        j = upload_params.get("j", [None])[0]
+        s = upload_params.get("s", [None])[0]
+        cuid = upload_params.get("cuid", [None])[0]
+        
+
+        return s,j,cuid
+    
+    async def get_token(self,client:httpx.AsyncClient,s,cuid):
+    
+        tk_params = {
+            "Method": "tk",
+            "cuid": cuid,
+            "s":s
+        } | self.file_params
+    
+        token_url = urlunsplit((
+            "https",
+            "e1.3dwhere.com",
+            "/eupload.ashx",
+            urlencode(tk_params),
+            ""
+        ))
+    
+        print(f"TokenUrl: {token_url}\n")
+
+        response = await make_request(
+            client,
+            token_url,
+            "GET",
+            timeout=50
+        )
+
+        response = response.json()
+        token = response.get("token")
+
+        print(f"Token: {token}")
+    
+        return token
+
+    async def get_fcode(self,client,token,s,j,cuid):
+    
+        upload_params = {
+            "Method": "upload",
+            "token": token,
+            "client": "html5",
+            "percen": 10,
+            "s":s,
+            "j":j,
+            "cuid":cuid
+        } | self.file_params
+    
+        upload_url = urlunsplit((
+            "https",
+            "e1.3dwhere.com",
+            "/eupload.ashx",
+            urlencode(upload_params),
+            ""
+        ))
+    
+        print("Upload:", upload_url, "\n")
+
+        f = self.filepath.open("rb")
+        data = f.read()
+        f.close()
+
+        response = await make_request(
+            client,
+            upload_url,
+            "POST",
+            timeout=240,
+            content = data
+        )
+
+        response = response.json()
+        fcode = response.get("message")
+    
+        return fcode
+
+    async def get_zip_download_url(self,client,fcode):
+    
+        zipurl_params = {
+            "action": "getinfo",
+            "fcode": fcode
+        }
+    
+        zipurl_url = urlunsplit((
+            "https",
+            "e1.3dwhere.com",
+            "/json.aspx",
+            urlencode(zipurl_params),
+            ""
+        ))
+    
+        zipurl = None
+        
+        start = time.monotonic()
+    
+        while zipurl is None:
+
+            response = await make_request(
+                client,
+                zipurl_url,
+                timeout = 10
+            )
+
+            response = response.json()
+            zipurl = response.get("zipfile")
+    
+            if time.monotonic() - start > 120:
+                break
+    
+            await asyncio.sleep(2)
+    
+        return zipurl
+    
+    async def save_zipfile(self,client,zipurl):
+
+        response = await make_request(
+            client,
+            zipurl,
+            timeout=240
+        )
+
+    
+        self.zip_path.write_bytes(response.content)
+    
+        with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+    
+            file = z.namelist()[0]
+            data = z.read(file)
+            self.blend_path.write_bytes(data)
+
+        return True
+    
+
+    @staticmethod
+    async def first_success(tasks):
+        pending = set(tasks)
+    
+        while pending:
+            done, pending = await asyncio.wait(
+                pending,
+                return_when=asyncio.FIRST_COMPLETED
+            )
+    
+            for task in done:
+                try:
+                    result = task.result()
+                except Exception as e:
+                    print(f"Attempt failed: {repr(e)}")
+                    continue
+    
+                if result:
+                    # We got our zip URL.
+                    # Cancel every other conversion.
+                    for other in pending:
+                        other.cancel()
+    
+                    await asyncio.gather(
+                        *pending,
+                        return_exceptions=True
+                    )
+    
+                    return result
+    
+        return None
+
+    async def _convert(self, client):
+        s, j, cuid = await self.get_env(client)
+
+        token = await self.get_token(client, s, cuid)
+
+        if token is None:
+            return None
+
+        fcode = await self.get_fcode(
+            client,
+            token,
+            s,
+            j,
+            cuid
+        )
+
+        if fcode is None:
+            return None
+
+        zipurl = await self.get_zip_download_url(
+            client,
+            fcode
+        )
+
+        if zipurl is None:
+            return None
+
+        return zipurl
+            
+        
+    async def run_blender(self):
+        
+        async with self.semaphore:
+
+            command = [
+                str(self.blender_executable),
+                "--background",
+                str(self.blend_path),
+                "--python",
+                str(self.script_path),
+            ]
+
+            print(f"Starting Blender: {self.blend_path}")
+
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+
+            stdout, _ = await process.communicate()
+
+            output = stdout.decode(errors="replace")
+
+            print(output)
+
+            if process.returncode != 0:
+                print(
+                    f"Blender failed for {self.blend_path} "
+                    f"(exit code {process.returncode})"
+                )
+                return False
+
+            print(f"Blender completed: {self.blend_path}")
+            return True
+    
+
+    async def convert_  (self):
+        async with httpx.AsyncClient() as client:
+
+            if ConvertSkp.NO_OF_ATTEMPTS > 1:
+                convert_tasks = [
+                    asyncio.create_task(
+                        self._convert(client)
+                    )
+                    for _ in range(ConvertSkp.NO_OF_ATTEMPTS)
+                ]
+    
+                zipurl = await self.first_success(convert_tasks)
+    
+                if zipurl is None:
+                    return False
+            else:
+                zipurl = await self._convert(client)
+        
+            await self.save_zipfile(
+                client,
+                zipurl
+            )
+
+        await self.run_blender()
+
+    
+
+async def main():
+    model = "b3"
+    instance = await ConvertSkp(Path(f".skp/njc-{model}/njc-{model}.skp")) #type: ignore
+    await instance.convert()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
