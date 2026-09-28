@@ -7,8 +7,8 @@ readme = "README.md"
 
 dependencies = [
   "typer>=0.27",
-  "colorama>=0.4.6; os_name == 'nt'"
-  "httpx>=0.38"
+  "colorama>=0.4.6; os_name == 'nt'",
+  "httpx>=0.38",
   "quart>=0.23"
 ]
 
@@ -42,6 +42,7 @@ exclude = [
   "/.blender",
   "/.github",
   "/.notes",
+  "setup",
   "/docs",
 ]
 

@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterable
+from enum import Enum
 from pathlib import Path
 from urllib.parse import urlencode, urlunsplit, parse_qs, urlparse
 
@@ -8,34 +10,49 @@ import zipfile
 import asyncio
 import httpx
 
-from ..config import load_config
+class Method(Enum):
+    GET = "get"
+    POST = "post"from ..config import load_config
 
-async def make_request(client, url, method, *, timeout=120, content=None):
-       
-    try:
-        if method == "GET":
+async def make_request(
+    client: httpx.AsyncClient, 
+    url: httpx.URL | str, 
+    method: Method, 
+    /, 
+    timeout: int = 120, 
+    content: AsyncIterable[bytes] | bytes | str | None = None
+) -> httpx._models.Response:
+    """
+    Make a request for `url` using `client` based on `method`.
+
+    `content` will be sent only when Method.POST
+    """
+    match method:
+        case Method.GET:
             response = await client.get(
                 url,
                 timeout=timeout
             )
-        elif method == "POST":
+        case Method.POST:
             response = await client.post(
                 url,
                 timeout=timeout,
                 content=content
             )
 
-        response.raise_for_status()
-        return response
-
-    except Exception as e:
-        raise e  
+    response.raise_for_status()
+    return response 
 
     
 class aobject(object):
-    async def __new__(cls,*a,**kw):
+    """
+    Generic object with async __init__
+
+    See: https://stackoverflow.com/a/45364670
+    """
+    async def __new__(cls, *a, **kw):
         instance = super().__new__(cls)
-        await instance.__init__(*a,**kw)
+        await instance.__init__(*a, **kw)
         return instance
 
     async def __init__(self):
@@ -54,40 +71,42 @@ class ConvertSkp(aobject):
     NO_OF_ATTEMPTS = 1
     # to be set in config?    
 
-    async def __init__(self,filepath: Path):
+    async def __init__(
+        self, 
+        filepath: Path,
+        save_folder: Path | None = None,
+        override: bool = True
+    ):
+        """
+        
+        """
         self.filepath = filepath
-        self.filename = filepath.name
-        self.filesize = filepath.stat().st_size
 
-        self.savefolder = Path("./.blend") / filepath.parent.relative_to(".skp") / filepath.name
+        self.savefolder = save_folder or Path(".blend") / filepath.parent.relative_to(".skp") / filepath.name
         self.savefolder.parent.mkdir(
             parents=True,
             exist_ok=True
         )
 
-
         self.zip_path = self.savefolder.with_suffix(".zip")
-
-        if self.zip_path.is_file():
-            self.zip_path.unlink()
-
         self.blend_path = self.savefolder.with_suffix(".blend")
 
-        if self.blend_path.is_file():
-            self.blend_path.unlink()
+        if override:
+            self.zip_path.unlink(missing_ok=True)
+            self.blend_path.unlink(missing_ok=True)
         
         self.file_params = {
-            "name":filepath.name,
-            "size":filepath.stat().st_size
+            "name": filepath.name,
+            "size": filepath.stat().st_size
         }
 
 
-    async def get_env(self,client):
+    async def get_env(self, client) -> tuple[str, str, str]:
             
         response = await make_request(
             client,
             "https://3dencoder.com/SKP-to-blend",
-            "GET",
+            Method.GET,
             timeout = 10
         )
     
@@ -102,14 +121,13 @@ class ConvertSkp(aobject):
             urlparse(m).query
         )
     
-        j = upload_params.get("j", [None])[0]
         s = upload_params.get("s", [None])[0]
+        j = upload_params.get("j", [None])[0]
         cuid = upload_params.get("cuid", [None])[0]
         
-
-        return s,j,cuid
+        return s, j, cuid
     
-    async def get_token(self,client:httpx.AsyncClient,s,cuid):
+    async def get_token(self, client: httpx.AsyncClient, s, cuid) -> str:
     
         tk_params = {
             "Method": "tk",
@@ -130,7 +148,7 @@ class ConvertSkp(aobject):
         response = await make_request(
             client,
             token_url,
-            "GET",
+            Method.GET,
             timeout=50
         )
 
@@ -138,19 +156,22 @@ class ConvertSkp(aobject):
         token = response.get("token")
 
         print(f"Token: {token}")
+
+        if token is None:
+            raise NotImplementedError("Did not get token (token is None)")
     
         return token
 
-    async def get_fcode(self,client,token,s,j,cuid):
+    async def get_fcode(self, client, token, s, j, cuid) -> str:
     
         upload_params = {
             "Method": "upload",
             "token": token,
             "client": "html5",
             "percen": 10,
-            "s":s,
-            "j":j,
-            "cuid":cuid
+            "s": s,
+            "j": j,
+            "cuid": cuid
         } | self.file_params
     
         upload_url = urlunsplit((
@@ -170,8 +191,8 @@ class ConvertSkp(aobject):
         response = await make_request(
             client,
             upload_url,
-            "POST",
-            timeout=240,
+            Method.POST,
+            timeout = 240,
             content = data
         )
 
@@ -180,7 +201,7 @@ class ConvertSkp(aobject):
     
         return fcode
 
-    async def get_zip_download_url(self,client,fcode):
+    async def get_zip_download_url(self, client: httpx.AsyncClient, fcode: str) -> str:
     
         zipurl_params = {
             "action": "getinfo",
@@ -204,6 +225,7 @@ class ConvertSkp(aobject):
             response = await make_request(
                 client,
                 zipurl_url,
+                Method.POST,
                 timeout = 10
             )
 
@@ -217,7 +239,7 @@ class ConvertSkp(aobject):
     
         return zipurl
     
-    async def save_zipfile(self,client,zipurl):
+    async def save_zipfile(self, client: httpx.AsyncClient, zipurl: str) -> None:
 
         response = await make_request(
             client,
@@ -233,12 +255,10 @@ class ConvertSkp(aobject):
             file = z.namelist()[0]
             data = z.read(file)
             self.blend_path.write_bytes(data)
-
-        return True
     
 
     @staticmethod
-    async def first_success(tasks):
+    async def first_success(tasks) -> str:
         pending = set(tasks)
     
         while pending:
@@ -267,15 +287,12 @@ class ConvertSkp(aobject):
     
                     return result
     
-        return None
+        raise NotImplementedError("No task success")
 
-    async def _convert(self, client):
+    async def _convert(self, client: httpx.AsyncClient):
         s, j, cuid = await self.get_env(client)
 
         token = await self.get_token(client, s, cuid)
-
-        if token is None:
-            return None
 
         fcode = await self.get_fcode(
             client,
@@ -286,7 +303,7 @@ class ConvertSkp(aobject):
         )
 
         if fcode is None:
-            return None
+            raise NotImplementedError("Missing fcode")
 
         zipurl = await self.get_zip_download_url(
             client,
@@ -294,7 +311,7 @@ class ConvertSkp(aobject):
         )
 
         if zipurl is None:
-            return None
+            raise NotImplementedError("Missing zipurl")
 
         return zipurl
             
@@ -336,7 +353,7 @@ class ConvertSkp(aobject):
             return True
     
 
-    async def convert_  (self):
+    async def convert(self):
         async with httpx.AsyncClient() as client:
 
             if ConvertSkp.NO_OF_ATTEMPTS > 1:
@@ -348,9 +365,6 @@ class ConvertSkp(aobject):
                 ]
     
                 zipurl = await self.first_success(convert_tasks)
-    
-                if zipurl is None:
-                    return False
             else:
                 zipurl = await self._convert(client)
         
@@ -360,8 +374,6 @@ class ConvertSkp(aobject):
             )
 
         await self.run_blender()
-
-    
 
 async def main():
     model = "b3"
