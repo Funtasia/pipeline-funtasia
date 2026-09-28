@@ -75,6 +75,8 @@ class ConvertSkp(aobject):
 
     blend_folder = FUNTASIA_ROOT / config["convert"]["blend_folder"]
 
+    skp_semaphore = asyncio.Semaphore(3)
+
     blender_semaphore = asyncio.Semaphore(1)
 
     NO_OF_ATTEMPTS = config["convert"]["attempts"]
@@ -93,7 +95,7 @@ class ConvertSkp(aobject):
 
         self.filepath = filepath or (ConvertSkp.skp_folder / filename / filename).with_suffix(".skp")
 
-        self.blend_save_path = blend_save_folder or ConvertSkp.blend_folder / self.filepath.parent / self.filepath.stem
+        self.blend_save_path = (blend_save_folder or ConvertSkp.blend_folder / self.filepath.parent) / self.filepath.stem
         self.blend_save_path.parent.mkdir(
             parents=True,
             exist_ok=True
@@ -392,7 +394,7 @@ class ConvertSkp(aobject):
     
 
     async def convert(self):
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient() as client, self.skp_semaphore:
 
             if ConvertSkp.NO_OF_ATTEMPTS > 1:
                 convert_tasks = [
