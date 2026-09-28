@@ -10,7 +10,7 @@ import zipfile
 import asyncio
 import httpx
 
-from .config import load_config
+from ..config import load_config
 
 class Method(Enum):
     GET = "get"
