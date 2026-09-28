@@ -1,5 +1,5 @@
 from quart import Quart
-from model_convert import ConvertSkp
+from .model_convert import ConvertSkp
 
 app = Quart(__name__)
 

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import tomllib
-import re
 from pathlib import Path
 
 def load_config():
