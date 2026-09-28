@@ -181,6 +181,10 @@ class ConvertSkp(aobject):
         return token
 
     async def get_fcode(self, client, token, s, j, cuid) -> str:
+        """
+        Uploads .skp model file and obtains a code: 'fcode' which is subsequently used 
+        to obtain the link to download the zip file
+        """
     
         upload_params = {
             "Method": "upload",
@@ -220,6 +224,10 @@ class ConvertSkp(aobject):
         return fcode
 
     async def get_zip_download_url(self, client: httpx.AsyncClient, fcode: str) -> str:
+        """
+        Using the 'fcode' returned by 'get_fcode()', it obtains the download link for
+        the zip file
+        """
     
         zipurl_params = {
             "action": "getinfo",
@@ -258,6 +266,10 @@ class ConvertSkp(aobject):
         return zipurl
     
     async def save_zipfile(self, client: httpx.AsyncClient, zipurl: str) -> None:
+        """
+        Using the download link returned by 'get_zip_download_url()', it saves both the
+        zip file and the .blend file.
+        """
 
         response = await make_request(
             client,
@@ -278,6 +290,10 @@ class ConvertSkp(aobject):
 
     @staticmethod
     async def first_success(tasks) -> str:
+        """
+        Handles the detection of the first successful process when multiple of the same request are made
+        """
+        
         pending = set(tasks)
     
         while pending:
