@@ -10,7 +10,7 @@ import zipfile
 import asyncio
 import httpx
 
-from ..config import load_config
+from config import load_config
 
 class Method(Enum):
     GET = "get"
@@ -65,42 +65,57 @@ class ConvertSkp(aobject):
 
     config = load_config()
 
-    script_path = Path(config["repos"]["root"]) / config["blender"]["script"]
+    FUNTASIA_ROOT = Path(config["dir"]["root"])
 
-    blender_executable = Path(config["blender"]["exe"])
+    blender_executable = Path(config["convert"]["blender_exe"])
+
+    script_path = FUNTASIA_ROOT / config["convert"]["blender_script"]
+
+    skp_folder = FUNTASIA_ROOT / config["convert"]["skp_folder"]
+
+    blend_folder = FUNTASIA_ROOT / config["convert"]["blend_folder"]
 
     blender_semaphore = asyncio.Semaphore(1)
 
-    NO_OF_ATTEMPTS = 1
-    # to be set in config?    
+    NO_OF_ATTEMPTS = config["convert"]["attempts"]
 
     async def __init__(
         self, 
-        filepath: Path,
-        save_folder: Path | None = None,
+        filename: str,
+        filepath: Path | None = None ,
+        blend_save_folder: Path | None = None,
+        glb_save_folder: Path | None = None,
         override: bool = True
     ):
         """
         
         """
-        self.filepath = filepath
 
-        self.savefolder = save_folder or Path(".blend") / filepath.parent.relative_to(".skp") / filepath.name
-        self.savefolder.parent.mkdir(
+        self.filepath = filepath or (ConvertSkp.skp_folder / filename / filename).with_suffix(".skp")
+
+        self.blend_save_path = blend_save_folder or ConvertSkp.blend_folder / self.filepath.parent / self.filepath.stem
+        self.blend_save_path.parent.mkdir(
             parents=True,
             exist_ok=True
         )
 
-        self.zip_path = self.savefolder.with_suffix(".zip")
-        self.blend_path = self.savefolder.with_suffix(".blend")
+        self.glb_save_folder  = glb_save_folder
+        if self.glb_save_folder is not None:
+            self.glb_save_folder.parent.mkdir(
+                parents=True,
+                exist_ok=True
+            )
+
+        self.zip_path = self.blend_save_path.with_suffix(".zip")
+        self.blend_path = self.blend_save_path.with_suffix(".blend")
 
         if override:
             self.zip_path.unlink(missing_ok=True)
             self.blend_path.unlink(missing_ok=True)
         
         self.file_params = {
-            "name": filepath.name,
-            "size": filepath.stat().st_size
+            "name": self.filepath.name,
+            "size": self.filepath.stat().st_size
         }
 
 
@@ -247,6 +262,7 @@ class ConvertSkp(aobject):
         response = await make_request(
             client,
             zipurl,
+            Method.GET,
             timeout=240
         )
 
@@ -321,7 +337,7 @@ class ConvertSkp(aobject):
         
     async def run_blender(self):
         
-        async with self.semaphore:
+        async with ConvertSkp.blender_semaphore:
 
             command = [
                 str(self.blender_executable),
@@ -330,6 +346,9 @@ class ConvertSkp(aobject):
                 "--python",
                 str(self.script_path),
             ]
+
+            if self.glb_save_folder is not None:
+                command += ["--","--glb",self.glb_save_folder]
 
             print(f"Starting Blender: {self.blend_path}")
 
@@ -378,9 +397,8 @@ class ConvertSkp(aobject):
 
         await self.run_blender()
 
-async def main():
-    model = "b3"
-    instance = await ConvertSkp(Path(f".skp/njc-{model}/njc-{model}.skp")) #type: ignore
+async def main(): 
+    instance = await ConvertSkp("njc-l2-hall",glb_save_folder=Path(r"C:\Users\Gareth\docs\school\non-academics\funtasia\pipeline-funtasia")) #type: ignore
     await instance.convert()
 
 
