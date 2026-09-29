@@ -1,19 +1,36 @@
+import asyncio
+from functools import wraps
+from pathlib import Path
 from typing import Optional
-import sys
-from rich import print
+from typing import Annotated
+
 from click import Parameter
 from click import Context
 from click.shell_completion import CompletionItem
-import asyncio
+from rich import print
+from rich.console import Group
+from rich.live import Live
+from rich.panel import Panel
+from rich.progress import TimeElapsedColumn, BarColumn, TextColumn, Progress
 import typer
 
-from typing import Annotated
-from pathlib import Path
-
 from .csv_parse import csv_data_to_json
+from .model_server.model_convert import ConvertSkp
 from .setup.clone import clone
 from .setup.readme import copy_readme
-from .model_server.model_convert import ConvertSkp
+
+
+def coro(f):
+    """
+    Wrap the async function with asyncio.run for use with app.command
+    
+    See https://github.com/pallets/click/issues/85#issuecomment-503464628
+    """
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        return asyncio.run(f(*args, **kwargs))
+
+    return wrapper
 
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="markdown")
 
@@ -59,9 +76,12 @@ def find_skp(ctx: Context, param: Parameter, incomplete: str):
     ]
 
 @app.command(no_args_is_help=True)
-def model_convert(
+@coro
+async def model_convert(
     files: Annotated[list[Path], typer.Argument(
-        exists=True, readable=True, help=".skp file(s) to convert (shell completion supported)", shell_complete=find_skp
+        exists=True, readable=True, 
+        help=".skp file(s) to convert (shell completion supported)", 
+        shell_complete=find_skp
     )],
     output_folder: Annotated[Optional[Path], typer.Option(
         "--output", '-o',
@@ -91,41 +111,69 @@ def model_convert(
 
     Read the config file and cli arguments. In case of conflicts, cli arguments take precedence.
     """
-    async def convert(
-        files: list[Path],
-        output_folder: Optional[Path],
-        blender_path: Optional[Path],
-        blender_folder: Optional[Path],
-        blender_script: Optional[Path],
-        force: bool
-    ):
-        if blender_script:
-            ConvertSkp.script_path = blender_script
-        if blender_path:
-            ConvertSkp.blender_executable = str(blender_path.absolute())
+    # Create progress bar for tracking all conversions
+    conversion_progress = Progress(
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(bar_width=80),
+        TextColumn("({task.completed}/{task.total})"),
+        TimeElapsedColumn(),
+        expand=True
+    )
+    
+    # Overall progress bar
+    overall_progress = Progress(
+        TimeElapsedColumn(),
+        BarColumn(bar_width=80),
+        TextColumn("{task.completed}/{task.total}"),
+        TextColumn("[bold green]{task.description}"),
+        expand=True
+    )
+    
+    # Group them together
+    progress_group = Group(
+        Panel(conversion_progress, title="[bold]Conversions[/bold]"),
+        overall_progress,
+    )
+        
+    # Add overall task
+    overall_task_id = overall_progress.add_task(
+        "", 
+        total=len(files)
+    )
+
+    # Add parameters not in __init__
+    ConvertSkp.blend_path = blender_path
+    ConvertSkp.script_path = blender_script
+    
+    # Use Live context manager to display all progress bars
+    with Live(progress_group, refresh_per_second=12.5) as l:
 
         async with asyncio.TaskGroup() as tg:
-            for file in files:
-                instance = await ConvertSkp( #type: ignore
-                    filename=file.name, 
-                    source=file,
-                    blend_save_folder=blender_folder,
+            for skp_file in files:
+                
+                # Create ConvertSkp instance and pass progress bar + task ID
+                converter = await ConvertSkp( #type: ignore
+                    filename=skp_file.name,
+                    source=skp_file,
                     glb_save_folder=output_folder,
-                    override=force
-                ) 
-                tg.create_task(instance.convert())
-
-
-    output=None #TODO
-    asyncio.run(convert(
-        files=files, 
-        output_folder=output_folder,
-        blender_path=blender_path,
-        blender_folder=blender_folder,
-        blender_script=blender_script,
-        force=force
-    ))
-
+                    progress_bar=conversion_progress,
+                    console=l.console
+                )
+                
+                # Create task that updates overall progress when done
+                async def run_and_update(conv):
+                    try:
+                        await conv.convert()
+                    finally:
+                        overall_progress.update(overall_task_id, advance=1)
+                
+                tg.create_task(run_and_update(converter))
+        
+        # Final message
+        overall_progress.update(
+            overall_task_id,
+            description="[bold green]All conversions complete![/bold green]"
+        )
     
 
 @app.callback()

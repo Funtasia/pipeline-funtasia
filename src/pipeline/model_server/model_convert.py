@@ -1,3 +1,6 @@
+from rich.live import Live
+from rich.progress import TextColumn, BarColumn, TimeElapsedColumn, Progress
+from rich.console import Console
 from collections.abc import AsyncIterable
 from enum import Enum
 from pathlib import Path
@@ -88,11 +91,22 @@ class ConvertSkp(aobject):
         source: Path | str,
         blend_save_folder: Path | None = None,
         glb_save_folder: Path | None = None,
-        override: bool = True
+        override: bool = True,
+        progress_bar: Progress | None = None,
+        console: Console | None = None
     ):
         """
-        
+        If `filepath` is not provided, look in skp_folder / filename / filename.skp 
+        (filename should not have file extention)
+
+        If override (default True), replace existing files and folders.
+
+        For reporting progress, use `progress_bar` and update the task for each step.
+        Multiple ConvertSkp can use the same progress bar as a new task is added for each instance.
+
+        All other output will go to `console`, which defaults to Console().
         """
+        
         if isinstance(source,Path):
             filename = source.stem
         else:
@@ -146,6 +160,21 @@ class ConvertSkp(aobject):
             "size": self.filepath.stat().st_size
         }
 
+        # Output related
+        self.console = console or Console()
+        self.progress_bar = progress_bar
+        if self.progress_bar:
+            self.task_id = self.progress_bar.add_task(f"{self.filepath.name}", total=3, start=False)
+
+
+    def update_progress(self, description, advance: float = 0):
+        if self.progress_bar and self.task_id is not None:
+            self.progress_bar.update(
+                self.task_id, 
+                description=description,
+                advance=advance
+            )
+
 
     async def get_env(self, client) -> tuple[str, str, str]:
             
@@ -189,7 +218,7 @@ class ConvertSkp(aobject):
             ""
         ))
     
-        print(f"TokenUrl: {token_url}\n")
+        self.console.print(f"TokenUrl: {token_url}\n")
 
         response = await make_request(
             client,
@@ -201,7 +230,7 @@ class ConvertSkp(aobject):
         response = response.json()
         token = response.get("token")
 
-        print(f"Token: {token}")
+        self.console.print(f"Token: {token}")
 
         if token is None:
             raise NotImplementedError("Did not get token (token is None)")
@@ -232,7 +261,7 @@ class ConvertSkp(aobject):
             ""
         ))
     
-        print("Upload:", upload_url, "\n")
+        self.console.print("Upload:", upload_url, "\n")
 
         f = self.filepath.open("rb")
         data = f.read()
@@ -316,42 +345,6 @@ class ConvertSkp(aobject):
             self.blend_path.write_bytes(data)
     
 
-    @staticmethod
-    async def first_success(tasks) -> str:
-        """
-        Handles the detection of the first successful process when multiple of the same request are made
-        """
-        
-        pending = set(tasks)
-    
-        while pending:
-            done, pending = await asyncio.wait(
-                pending,
-                return_when=asyncio.FIRST_COMPLETED
-            )
-    
-            for task in done:
-                try:
-                    result = task.result()
-                except Exception as e:
-                    print(f"Attempt failed: {repr(e)}")
-                    continue
-    
-                if result:
-                    # We got our zip URL.
-                    # Cancel every other conversion.
-                    for other in pending:
-                        other.cancel()
-    
-                    await asyncio.gather(
-                        *pending,
-                        return_exceptions=True
-                    )
-    
-                    return result
-    
-        raise NotImplementedError("No task success")
-
     async def _convert(self, client: httpx.AsyncClient):
         s, j, cuid = await self.get_env(client)
 
@@ -380,8 +373,12 @@ class ConvertSkp(aobject):
             
         
     async def run_blender(self):
-        
-        async with ConvertSkp.blender_semaphore:
+
+        self.update_progress(f"[bold blue]Waiting for Blender: {self.blend_path.name}[/bold blue]")
+
+        async with self.blender_semaphore:
+
+            self.update_progress(f"[bold blue]Converting with Blender: {self.blend_path.name}[/bold blue]", advance=1)
 
             command = [
                 str(self.blender_executable),
@@ -392,9 +389,9 @@ class ConvertSkp(aobject):
             ]
 
             if self.glb_save_folder is not None:
-                command += ["--","--glb",self.glb_save_folder]
+                command += ["--", "--glb", str(self.glb_save_folder)]
 
-            print(f"Starting Blender: {self.blend_path}")
+            self.console.print(f"Starting Blender: {self.blend_path}")
 
             process = await asyncio.create_subprocess_exec(
                 *command,
@@ -403,42 +400,74 @@ class ConvertSkp(aobject):
             )
 
             stdout, _ = await process.communicate()
-
             output = stdout.decode(errors="replace")
 
-            print(output)
-
             if process.returncode != 0:
-                print(
-                    f"Blender failed for {self.blend_path} "
-                    f"(exit code {process.returncode})"
+                self.console.print(
+                    f"[red]Blender failed for {self.blend_path} "
+                    f"(exit code {process.returncode})[/]"
                 )
                 return False
 
-            print(f"Blender completed: {self.blend_path}")
+            self.console.print(f"[green]Blender completed: {self.blend_path}[/]")
             return True
-    
+
 
     async def convert(self):
+        self.update_progress(f"[bold yellow]Waiting for upload: {self.filepath.name}[/bold yellow]")
+
         async with httpx.AsyncClient() as client, self.skp_semaphore:
+            if self.progress_bar:
+                self.progress_bar.start_task(self.task_id)
+
+            self.update_progress(f"[bold cyan]Uploading for conversion: {self.filepath.name}[/bold cyan]")
+
             for attempt in range(ConvertSkp.NO_OF_ATTEMPTS):
                 try:
                     zipurl = await self._convert(client)
                     break
 
                 except Exception as e:
-                    print(f"Attempt {attempt+1} failed: {e}")
+                    self.console.print(f"[red]Failed to get {self.filepath.name} (attempt {attempt+1})[/]")
+                    
+                    self.console.print(f"Attempt {attempt+1} failed: {e}")
 
-                    if attempt == ConvertSkp.NO_OF_ATTEMPTS:
+                    # attempt is 0-indexed
+                    if attempt + 1 == ConvertSkp.NO_OF_ATTEMPTS:
                         raise
+
+            self.update_progress(f"[bold cyan]Downloading converted zip: {self.filepath.name}[/bold cyan]", advance=1)
 
             await self.save_zipfile(client, zipurl)
 
+            self.console.print(f"[green]{self.filepath.name} converted to .blend successfully[/]")
+
         await self.run_blender()
+        
+        self.update_progress(f"[bold green]✓ {self.filepath.name} done![/bold green]", advance=1)
+
 
 async def main(): 
-    instance = await ConvertSkp("njc-l2-hall",glb_save_folder=Path(r"C:\Users\Gareth\docs\school\non-academics\funtasia\pipeline-funtasia")) #type: ignore
-    await instance.convert()
+    conversion_progress = Progress(
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(),
+        TextColumn("({task.completed}/{task.total})"),
+        TimeElapsedColumn(),
+    )
+
+    with Live(conversion_progress) as l:
+
+        instance = await ConvertSkp( #type: ignore
+            "njc-l2-hall", 
+            # glb_save_folder=Path(r"C:\Users\Gareth\docs\school\non-academics\funtasia\pipeline-funtasia"),
+            glb_save_folder=Path("reallytesting"),
+            blend_save_folder=Path("/tmp/blender"),
+            progress_bar=conversion_progress,
+            console=l.console
+        )
+
+        await instance.convert()
+
 
 
 if __name__ == "__main__":
