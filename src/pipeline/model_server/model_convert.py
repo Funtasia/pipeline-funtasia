@@ -395,23 +395,18 @@ class ConvertSkp(aobject):
 
     async def convert(self):
         async with httpx.AsyncClient() as client, self.skp_semaphore:
+            for attempt in range(ConvertSkp.NO_OF_ATTEMPTS):
+                try:
+                    zipurl = await self._convert(client)
+                    break
+                
+                except Exception as e:
+                    print(f"Attempt {attempt+1} failed: {e}")
 
-            if ConvertSkp.NO_OF_ATTEMPTS > 1:
-                convert_tasks = [
-                    asyncio.create_task(
-                        self._convert(client)
-                    )
-                    for _ in range(ConvertSkp.NO_OF_ATTEMPTS)
-                ]
-    
-                zipurl = await self.first_success(convert_tasks)
-            else:
-                zipurl = await self._convert(client)
-        
-            await self.save_zipfile(
-                client,
-                zipurl
-            )
+                    if attempt == ConvertSkp.NO_OF_ATTEMPTS:
+                        raise
+
+            await self.save_zipfile(client, zipurl)
 
         await self.run_blender()
 
