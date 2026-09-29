@@ -108,7 +108,7 @@ def model_convert(
             for file in files:
                 instance = await ConvertSkp( #type: ignore
                     filename=file.name, 
-                    filepath=file,
+                    source=file,
                     blend_save_folder=blender_folder,
                     glb_save_folder=output_folder,
                     override=force
