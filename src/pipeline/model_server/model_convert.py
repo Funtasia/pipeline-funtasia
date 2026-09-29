@@ -73,6 +73,8 @@ class ConvertSkp(aobject):
 
     skp_folder = FUNTASIA_ROOT / config["convert"]["skp_folder"]
 
+    glb_folder = FUNTASIA_ROOT / config["convert"]["glb_folder"]
+
     blend_folder = FUNTASIA_ROOT / config["convert"]["blend_folder"]
 
     skp_semaphore = asyncio.Semaphore(3)
@@ -83,8 +85,7 @@ class ConvertSkp(aobject):
 
     async def __init__(
         self, 
-        filename: str,
-        filepath: Path | None = None ,
+        source: Path | str,
         blend_save_folder: Path | None = None,
         glb_save_folder: Path | None = None,
         override: bool = True
@@ -92,28 +93,53 @@ class ConvertSkp(aobject):
         """
         
         """
+        if isinstance(source,Path):
+            filename = source.stem
+        else:
+            filename = source
+        
+        # Defines the path to the .skp file
+        if isinstance(source, Path) and source.is_file():
+            self.filepath = source
 
-        self.filepath = filepath or (ConvertSkp.skp_folder / filename / filename).with_suffix(".skp")
+        else:        
 
-        self.blend_save_path = (blend_save_folder or ConvertSkp.blend_folder / self.filepath.parent) / self.filepath.stem
-        self.blend_save_path.parent.mkdir(
-            parents=True,
+            self.filepath = ConvertSkp.skp_folder / filename / f"{filename}.skp"
+            
+            if not self.filepath.is_file():
+                raise FileNotFoundError(f"Provided filepath - {source} is not a valid filepath")
+
+
+        # Defines the directory & path as to the saving of the .blend file
+        if blend_save_folder is not None:
+            blend_save_folder = blend_save_folder / filename
+        else:
+            blend_save_folder = ConvertSkp.blend_folder / filename
+
+        blend_save_folder.mkdir(
+            parents = True,
             exist_ok=True
         )
 
-        self.glb_save_folder  = glb_save_folder
-        if self.glb_save_folder is not None:
-            self.glb_save_folder.parent.mkdir(
-                parents=True,
-                exist_ok=True
-            )
+        self.blend_save_path = blend_save_folder / f"{filename}.blend"
 
-        self.zip_path = self.blend_save_path.with_suffix(".zip")
-        self.blend_path = self.blend_save_path.with_suffix(".blend")
+        # Defines the path to save the .glb
+        glb_save_folder = glb_save_folder or ConvertSkp.glb_folder 
 
-        if override:
-            self.zip_path.unlink(missing_ok=True)
-            self.blend_path.unlink(missing_ok=True)
+        glb_save_folder.mkdir(
+            parents = True,
+            exist_ok = True
+        )
+
+        self.glb_save_path = glb_save_folder / f"{filename}.glb"
+
+        self.zip_save_path = self.blend_save_path.with_suffix(".zip")
+
+        if not override and (
+            self.zip_save_path.is_file() or
+            self.blend_save_path.is_file()
+        ):
+            raise FileExistsError("Zip/Blender file exists for model already")
         
         self.file_params = {
             "name": self.filepath.name,
@@ -399,7 +425,7 @@ class ConvertSkp(aobject):
                 try:
                     zipurl = await self._convert(client)
                     break
-                
+
                 except Exception as e:
                     print(f"Attempt {attempt+1} failed: {e}")
 
