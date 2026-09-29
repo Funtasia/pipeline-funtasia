@@ -403,7 +403,8 @@ class ConvertSkp(aobject):
                 except Exception as e:
                     print(f"Attempt {attempt+1} failed: {e}")
 
-                    if attempt == ConvertSkp.NO_OF_ATTEMPTS:
+                    # attempt is 0-indexed
+                    if attempt + 1 == ConvertSkp.NO_OF_ATTEMPTS:
                         raise
 
             await self.save_zipfile(client, zipurl)
