@@ -1,3 +1,5 @@
+import functools
+from signal import raise_signal
 from rich.live import Live
 from rich.progress import TextColumn, BarColumn, TimeElapsedColumn, Progress
 from rich.console import Console
@@ -64,6 +66,25 @@ class aobject(object):
     async def __init__(self):
         pass
 
+def notNone(message: str | None = None, Error_class: Exception = NotImplementedError):
+    "Ensure the return value is not None, else raise NotImplementedError"
+    
+    def wrapper(f):
+
+        @functools.wraps(f)
+        def wrapped(*args, **kwargs):
+            result = f(*args, **kwargs)
+            if result is None:
+                raise Error_class(message or f"{f.__name__} returned None")
+            return result
+        
+        return wrapped
+    
+    if callable(message): # decorator used without calling
+        return wrapper(message)
+    
+    return wrapper
+
 class ConvertSkp(aobject):
 
     config = load_config()
@@ -89,14 +110,15 @@ class ConvertSkp(aobject):
     async def __init__(
         self, 
         source: Path | str,
-        blend_save_folder: Path | None = None,
         glb_save_folder: Path | None = None,
+        blend_save_folder: Path | None = None,
         override: bool = True,
         progress_bar: Progress | None = None,
         console: Console | None = None
     ):
         """
-        If `filepath` is not provided, look in skp_folder / filename / filename.skp 
+        If `source` is not a Path, it is treated as the filename,
+        then try to use skp_folder / filename / filename.skp 
         (filename should not have file extention)
 
         If override (default True), replace existing files and folders.
@@ -201,7 +223,8 @@ class ConvertSkp(aobject):
         cuid = upload_params.get("cuid", [None])[0]
         
         return s, j, cuid
-    
+
+    @notNone(message="Did not get token (token is None)")
     async def get_token(self, client: httpx.AsyncClient, s, cuid) -> str:
     
         tk_params = {
@@ -231,12 +254,10 @@ class ConvertSkp(aobject):
         token = response.get("token")
 
         self.console.print(f"Token: {token}")
-
-        if token is None:
-            raise NotImplementedError("Did not get token (token is None)")
     
         return token
 
+    @notNone(message="Did not get fcode (fcode is None)")
     async def get_fcode(self, client, token, s, j, cuid) -> str:
         """
         Uploads .skp model file and obtains a code: 'fcode' which is subsequently used 
@@ -280,6 +301,7 @@ class ConvertSkp(aobject):
     
         return fcode
 
+    @notNone(message="Request timed out without getting zipurl", Error_class=TimeoutError)
     async def get_zip_download_url(self, client: httpx.AsyncClient, fcode: str) -> str:
         """
         Using the 'fcode' returned by 'get_fcode()', it obtains the download link for
@@ -303,6 +325,8 @@ class ConvertSkp(aobject):
         
         start = time.monotonic()
     
+        # server sometimes responds OK, but actually still converting
+        # thus keep trying with 2s interval until zipurl appears
         while zipurl is None:
 
             response = await make_request(
@@ -345,7 +369,8 @@ class ConvertSkp(aobject):
             self.blend_path.write_bytes(data)
     
 
-    async def _convert(self, client: httpx.AsyncClient):
+    async def upload(self, client: httpx.AsyncClient) -> str:
+        "Upload file and return fcode"
         s, j, cuid = await self.get_env(client)
 
         token = await self.get_token(client, s, cuid)
@@ -358,21 +383,11 @@ class ConvertSkp(aobject):
             cuid
         )
 
-        if fcode is None:
-            raise NotImplementedError("Missing fcode")
-
-        zipurl = await self.get_zip_download_url(
-            client,
-            fcode
-        )
-
-        if zipurl is None:
-            raise NotImplementedError("Missing zipurl")
-
-        return zipurl
+        return fcode
             
         
-    async def run_blender(self):
+    async def run_blender(self) -> bool:
+        "Run blender and raise RuntimeError is failure"
 
         self.update_progress(f"[bold blue]Waiting for Blender: {self.blend_path.name}[/bold blue]")
 
@@ -404,16 +419,20 @@ class ConvertSkp(aobject):
 
             if process.returncode != 0:
                 self.console.print(
-                    f"[red]Blender failed for {self.blend_path} "
+                    f"[red]Blender failed for {self.blend_path}",
                     f"(exit code {process.returncode})[/]"
                 )
-                return False
+                raise RuntimeError(f"Blender failed with exit code {process.returncode}")
 
             self.console.print(f"[green]Blender completed: {self.blend_path}[/]")
-            return True
 
 
-    async def convert(self):
+    async def _convert(self):
+        """
+        Convert the file fully from .skp to .glb.
+
+        All error handling is done in `convert`
+        """
         self.update_progress(f"[bold yellow]Waiting for upload: {self.filepath.name}[/bold yellow]")
 
         async with httpx.AsyncClient() as client, self.skp_semaphore:
@@ -424,13 +443,16 @@ class ConvertSkp(aobject):
 
             for attempt in range(ConvertSkp.NO_OF_ATTEMPTS):
                 try:
-                    zipurl = await self._convert(client)
+                    fcode = await self.upload(client)
+                    zipurl = await self.get_zip_download_url(client, fcode)
                     break
 
                 except Exception as e:
-                    self.console.print(f"[red]Failed to get {self.filepath.name} (attempt {attempt+1})[/]")
-                    
-                    self.console.print(f"Attempt {attempt+1} failed: {e}")
+                    self.console.print(
+                        f"[red]Failed to get {self.filepath.name}:[/red]",
+                        f"[blue]{type(e).__name__}[/blue]: {e}"
+                        f"[yellow](attempt {attempt+1}/{ConvertSkp.NO_OF_ATTEMPTS})[/yellow]"
+                    )
 
                     # attempt is 0-indexed
                     if attempt + 1 == ConvertSkp.NO_OF_ATTEMPTS:
@@ -444,7 +466,33 @@ class ConvertSkp(aobject):
 
         await self.run_blender()
         
-        self.update_progress(f"[bold green]✓ {self.filepath.name} done![/bold green]", advance=1)
+        self.update_progress(f"[bold green]✓ Done: {self.filepath.name}[/bold green]", advance=1)
+
+
+    async def convert(self, suppress_errors=False) -> bool:
+        """
+        Convert the file in `self.filepath` (.skp) -> .blend -> .glb
+
+        Error messages will appear in `progress_bar` if set.
+
+        If suppress_errors=False, raise any errors that occur,
+        else return False
+
+        If conversion is successful, return True.
+        """
+        try:
+            await self._convert()
+            return True
+        
+        except Exception as e:
+            if self.progress_bar:
+                self.update_progress(f"[red]✗ Failed: {self.filepath.name} ({type(e).__name__}: {e})")
+                self.progress_bar.stop_task(self.task_id)
+
+            if not suppress_errors:
+                raise RuntimeError("Conversion of model failed") from e
+
+            return False
 
 
 async def main(): 

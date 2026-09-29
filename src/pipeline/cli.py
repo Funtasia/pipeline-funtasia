@@ -114,7 +114,7 @@ async def model_convert(
     # Create progress bar for tracking all conversions
     conversion_progress = Progress(
         TextColumn("[bold blue]{task.description}"),
-        BarColumn(bar_width=80),
+        BarColumn(bar_width=120),
         TextColumn("({task.completed}/{task.total})"),
         TimeElapsedColumn(),
         expand=True
@@ -123,7 +123,7 @@ async def model_convert(
     # Overall progress bar
     overall_progress = Progress(
         TimeElapsedColumn(),
-        BarColumn(bar_width=80),
+        BarColumn(bar_width=500),
         TextColumn("{task.completed}/{task.total}"),
         TextColumn("[bold green]{task.description}"),
         expand=True
@@ -144,6 +144,8 @@ async def model_convert(
     # Add parameters not in __init__
     ConvertSkp.blend_path = blender_path
     ConvertSkp.script_path = blender_script
+
+    tasks = []
     
     # Use Live context manager to display all progress bars
     with Live(progress_group, refresh_per_second=12.5) as l:
@@ -153,7 +155,6 @@ async def model_convert(
                 
                 # Create ConvertSkp instance and pass progress bar + task ID
                 converter = await ConvertSkp( #type: ignore
-                    filename=skp_file.name,
                     source=skp_file,
                     glb_save_folder=output_folder,
                     progress_bar=conversion_progress,
@@ -161,20 +162,26 @@ async def model_convert(
                 )
                 
                 # Create task that updates overall progress when done
-                async def run_and_update(conv):
-                    try:
-                        await conv.convert()
-                    finally:
-                        overall_progress.update(overall_task_id, advance=1)
+                async def run_and_update(conv: ConvertSkp):
+                    success = await conv.convert(suppress_errors=True)
+                    # success = await conv.convert(suppress_errors=False)
+
+                    overall_progress.update(overall_task_id, advance=1)
+
+                    return success
                 
-                tg.create_task(run_and_update(converter))
+                tasks.append(tg.create_task(run_and_update(converter)))
+
+        no_errors = sum(1 if task.result() is False else 0 for task in tasks)
         
         # Final message
         overall_progress.update(
             overall_task_id,
-            description="[bold green]All conversions complete![/bold green]"
+            description=f"[bold][green]All conversions complete![/green] [red]({no_errors} errors)[/red]"
         )
     
+    return
+
 
 @app.callback()
 def callback():
