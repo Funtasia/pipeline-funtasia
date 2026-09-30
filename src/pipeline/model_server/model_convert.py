@@ -86,6 +86,17 @@ def notNone(message: str | None = None, Error_class: Exception = NotImplementedE
     return wrapper
 
 class ConvertSkp(aobject):
+    """
+    Class to convert .skp -> .blend -> .glb.
+
+    Example code:
+    
+    >>> async with httpx.AsyncClient as client:
+    >>>     # since __new__ and __init__ are async, it is important 
+    >>>     # to call `await` on instance creation
+    >>>     conv = await ConvertSkp("model.skp", client=client)
+    >>>     await conv.convert()
+    """
 
     config = load_config()
 
@@ -110,6 +121,7 @@ class ConvertSkp(aobject):
     async def __init__(
         self, 
         source: Path | str,
+        client: httpx.AsyncClient,
         glb_save_folder: Path | None = None,
         blend_save_folder: Path | None = None,
         override: bool = True,
@@ -122,6 +134,8 @@ class ConvertSkp(aobject):
         (filename should not have file extention)
 
         If override (default True), replace existing files and folders.
+
+        `client` needs to be an OPEN httpx.AsyncClient instance.
 
         For reporting progress, use `progress_bar` and update the task for each step.
         Multiple ConvertSkp can use the same progress bar as a new task is added for each instance.
@@ -160,9 +174,9 @@ class ConvertSkp(aobject):
         self.blend_save_path = blend_save_folder / f"{filename}.blend"
 
         # Defines the path to save the .glb
-        glb_save_folder = glb_save_folder or ConvertSkp.glb_folder 
+        self.glb_save_folder = glb_save_folder or ConvertSkp.glb_folder 
 
-        glb_save_folder.mkdir(
+        self.glb_save_folder.mkdir(
             parents = True,
             exist_ok = True
         )
@@ -182,6 +196,8 @@ class ConvertSkp(aobject):
             "size": self.filepath.stat().st_size
         }
 
+        self.client = client
+
         # Output related
         self.console = console or Console()
         self.progress_bar = progress_bar
@@ -198,10 +214,10 @@ class ConvertSkp(aobject):
             )
 
 
-    async def get_env(self, client) -> tuple[str, str, str]:
+    async def get_env(self) -> tuple[str, str, str]:
             
         response = await make_request(
-            client,
+            self.client,
             "https://3dencoder.com/SKP-to-blend",
             Method.GET,
             timeout = 10
@@ -225,7 +241,7 @@ class ConvertSkp(aobject):
         return s, j, cuid
 
     @notNone(message="Did not get token (token is None)")
-    async def get_token(self, client: httpx.AsyncClient, s, cuid) -> str:
+    async def get_token(self, s, cuid) -> str:
     
         tk_params = {
             "Method": "tk",
@@ -244,7 +260,7 @@ class ConvertSkp(aobject):
         self.console.print(f"TokenUrl: {token_url}\n")
 
         response = await make_request(
-            client,
+            self.client,
             token_url,
             Method.GET,
             timeout=50
@@ -258,7 +274,7 @@ class ConvertSkp(aobject):
         return token
 
     @notNone(message="Did not get fcode (fcode is None)")
-    async def get_fcode(self, client, token, s, j, cuid) -> str:
+    async def get_fcode(self, token, s, j, cuid) -> str:
         """
         Uploads .skp model file and obtains a code: 'fcode' which is subsequently used 
         to obtain the link to download the zip file
@@ -289,7 +305,7 @@ class ConvertSkp(aobject):
         f.close()
 
         response = await make_request(
-            client,
+            self.client,
             upload_url,
             Method.POST,
             timeout = 240,
@@ -302,7 +318,7 @@ class ConvertSkp(aobject):
         return fcode
 
     @notNone(message="Request timed out without getting zipurl", Error_class=TimeoutError)
-    async def get_zip_download_url(self, client: httpx.AsyncClient, fcode: str) -> str:
+    async def get_zip_download_url(self, fcode: str) -> str:
         """
         Using the 'fcode' returned by 'get_fcode()', it obtains the download link for
         the zip file
@@ -330,7 +346,7 @@ class ConvertSkp(aobject):
         while zipurl is None:
 
             response = await make_request(
-                client,
+                self.client,
                 zipurl_url,
                 Method.POST,
                 timeout = 10
@@ -346,37 +362,35 @@ class ConvertSkp(aobject):
     
         return zipurl
     
-    async def save_zipfile(self, client: httpx.AsyncClient, zipurl: str) -> None:
+    async def save_zipfile(self, zipurl: str) -> None:
         """
         Using the download link returned by 'get_zip_download_url()', it saves both the
         zip file and the .blend file.
         """
 
         response = await make_request(
-            client,
+            self.client,
             zipurl,
             Method.GET,
             timeout=240
         )
-
     
-        self.zip_path.write_bytes(response.content)
+        self.zip_save_path.write_bytes(response.content)
     
         with zipfile.ZipFile(io.BytesIO(response.content)) as z:
     
             file = z.namelist()[0]
             data = z.read(file)
-            self.blend_path.write_bytes(data)
+            self.blend_save_path.write_bytes(data)
     
 
-    async def upload(self, client: httpx.AsyncClient) -> str:
+    async def upload(self) -> str:
         "Upload file and return fcode"
-        s, j, cuid = await self.get_env(client)
+        s, j, cuid = await self.get_env()
 
-        token = await self.get_token(client, s, cuid)
+        token = await self.get_token(s, cuid)
 
         fcode = await self.get_fcode(
-            client,
             token,
             s,
             j,
@@ -389,16 +403,16 @@ class ConvertSkp(aobject):
     async def run_blender(self) -> bool:
         "Run blender and raise RuntimeError is failure"
 
-        self.update_progress(f"[bold blue]Waiting for Blender: {self.blend_path.name}[/bold blue]")
+        self.update_progress(f"[bold blue]Waiting for Blender: {self.blend_save_path.name}[/bold blue]")
 
         async with self.blender_semaphore:
 
-            self.update_progress(f"[bold blue]Converting with Blender: {self.blend_path.name}[/bold blue]", advance=1)
+            self.update_progress(f"[bold blue]Converting with Blender: {self.blend_save_path.name}[/bold blue]", advance=1)
 
             command = [
                 str(self.blender_executable),
                 "--background",
-                str(self.blend_path),
+                str(self.blend_save_path),
                 "--python",
                 str(self.script_path),
             ]
@@ -406,7 +420,7 @@ class ConvertSkp(aobject):
             if self.glb_save_folder is not None:
                 command += ["--", "--glb", str(self.glb_save_folder)]
 
-            self.console.print(f"Starting Blender: {self.blend_path}")
+            self.console.print(f"Starting Blender: {self.blend_save_path}")
 
             process = await asyncio.create_subprocess_exec(
                 *command,
@@ -419,12 +433,12 @@ class ConvertSkp(aobject):
 
             if process.returncode != 0:
                 self.console.print(
-                    f"[red]Blender failed for {self.blend_path}",
+                    f"[red]Blender failed for {self.blend_save_path}",
                     f"(exit code {process.returncode})[/]"
                 )
                 raise RuntimeError(f"Blender failed with exit code {process.returncode}")
 
-            self.console.print(f"[green]Blender completed: {self.blend_path}[/]")
+            self.console.print(f"[green]Blender completed: {self.blend_save_path}[/]")
 
 
     async def _convert(self):
@@ -435,7 +449,7 @@ class ConvertSkp(aobject):
         """
         self.update_progress(f"[bold yellow]Waiting for upload: {self.filepath.name}[/bold yellow]")
 
-        async with httpx.AsyncClient() as client, self.skp_semaphore:
+        async with self.skp_semaphore:
             if self.progress_bar:
                 self.progress_bar.start_task(self.task_id)
 
@@ -443,14 +457,14 @@ class ConvertSkp(aobject):
 
             for attempt in range(ConvertSkp.NO_OF_ATTEMPTS):
                 try:
-                    fcode = await self.upload(client)
-                    zipurl = await self.get_zip_download_url(client, fcode)
+                    fcode = await self.upload()
+                    zipurl = await self.get_zip_download_url(fcode)
                     break
 
                 except Exception as e:
                     self.console.print(
                         f"[red]Failed to get {self.filepath.name}:[/red]",
-                        f"[blue]{type(e).__name__}[/blue]: {e}"
+                        f"[blue]{type(e).__name__}[/blue]: {e}",
                         f"[yellow](attempt {attempt+1}/{ConvertSkp.NO_OF_ATTEMPTS})[/yellow]"
                     )
 
@@ -460,7 +474,7 @@ class ConvertSkp(aobject):
 
             self.update_progress(f"[bold cyan]Downloading converted zip: {self.filepath.name}[/bold cyan]", advance=1)
 
-            await self.save_zipfile(client, zipurl)
+            await self.save_zipfile(zipurl)
 
             self.console.print(f"[green]{self.filepath.name} converted to .blend successfully[/]")
 
@@ -498,23 +512,27 @@ class ConvertSkp(aobject):
 async def main(): 
     conversion_progress = Progress(
         TextColumn("[bold blue]{task.description}"),
-        BarColumn(),
+        BarColumn(bar_width=80),
         TextColumn("({task.completed}/{task.total})"),
         TimeElapsedColumn(),
+        expand=True
     )
 
     with Live(conversion_progress) as l:
 
-        instance = await ConvertSkp( #type: ignore
-            "njc-l2-hall", 
-            # glb_save_folder=Path(r"C:\Users\Gareth\docs\school\non-academics\funtasia\pipeline-funtasia"),
-            glb_save_folder=Path("reallytesting"),
-            blend_save_folder=Path("/tmp/blender"),
-            progress_bar=conversion_progress,
-            console=l.console
-        )
+        async with httpx.AsyncClient() as client:
 
-        await instance.convert()
+            instance = await ConvertSkp( #type: ignore
+                "njc-l2-hall", 
+                client,
+                # glb_save_folder=Path(r"C:\Users\Gareth\docs\school\non-academics\funtasia\pipeline-funtasia"),
+                glb_save_folder=Path("reallytesting"),
+                blend_save_folder=Path("/tmp/blender"),
+                progress_bar=conversion_progress,
+                console=l.console
+            )
+
+            await instance.convert()
 
 
 

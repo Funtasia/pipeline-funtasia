@@ -1,3 +1,4 @@
+import httpx
 import asyncio
 from functools import wraps
 from pathlib import Path
@@ -150,12 +151,13 @@ async def model_convert(
     # Use Live context manager to display all progress bars
     with Live(progress_group, refresh_per_second=12.5) as l:
 
-        async with asyncio.TaskGroup() as tg:
+        async with httpx.AsyncClient() as client, asyncio.TaskGroup() as tg:
             for skp_file in files:
                 
                 # Create ConvertSkp instance and pass progress bar + task ID
                 converter = await ConvertSkp( #type: ignore
                     source=skp_file,
+                    client=client,
                     glb_save_folder=output_folder,
                     progress_bar=conversion_progress,
                     console=l.console
@@ -164,7 +166,6 @@ async def model_convert(
                 # Create task that updates overall progress when done
                 async def run_and_update(conv: ConvertSkp):
                     success = await conv.convert(suppress_errors=True)
-                    # success = await conv.convert(suppress_errors=False)
 
                     overall_progress.update(overall_task_id, advance=1)
 
