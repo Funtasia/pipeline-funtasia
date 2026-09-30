@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Optional
 from typing import Annotated
 
+import httpx
+import typer
 from click import Parameter
 from click import Context
 from click.shell_completion import CompletionItem
@@ -11,8 +13,7 @@ from rich import print
 from rich.console import Group
 from rich.live import Live
 from rich.panel import Panel
-from rich.progress import TimeElapsedColumn, BarColumn, TextColumn, Progress
-import typer
+from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
 from .csv_parse import csv_data_to_json
 from .model_server.model_convert import ConvertSkp
@@ -60,7 +61,7 @@ def setup(
     clone(force=force, ssh=ssh)
     copy_readme(force=force)
 
-def find_skp(ctx: Context, param: Parameter, incomplete: str):
+def find_skp(ctx: Context, param: Parameter, incomplete: str) -> list[CompletionItem]:
     # Using click CompletionItem allows spefifying type of completion ("file"),
     # which means that zsh file autocomplete will not take precedence
     # Thus we use click's shell_complete instead of typer's autocomplete
@@ -78,10 +79,10 @@ def find_skp(ctx: Context, param: Parameter, incomplete: str):
 @app.command(no_args_is_help=True)
 @coro
 async def model_convert(
-    files: Annotated[list[Path], typer.Argument(
-        exists=True, readable=True, 
-        help=".skp file(s) to convert (shell completion supported)", 
-        shell_complete=find_skp
+    files: Annotated[list[Path], typer.Argument( 
+        help=".skp file(s) to convert (shell completion supported)",
+        exists=True, readable=True,
+        shell_complete=find_skp #type: ignore
     )],
     output_folder: Annotated[Optional[Path], typer.Option(
         "--output", '-o',
@@ -114,7 +115,7 @@ async def model_convert(
     # Create progress bar for tracking all conversions
     conversion_progress = Progress(
         TextColumn("[bold blue]{task.description}"),
-        BarColumn(bar_width=80),
+        BarColumn(bar_width=120),
         TextColumn("({task.completed}/{task.total})"),
         TimeElapsedColumn(),
         expand=True
@@ -123,7 +124,7 @@ async def model_convert(
     # Overall progress bar
     overall_progress = Progress(
         TimeElapsedColumn(),
-        BarColumn(bar_width=80),
+        BarColumn(bar_width=500),
         TextColumn("{task.completed}/{task.total}"),
         TextColumn("[bold green]{task.description}"),
         expand=True
@@ -142,39 +143,48 @@ async def model_convert(
     )
 
     # Add parameters not in __init__
-    ConvertSkp.blend_path = blender_path
-    ConvertSkp.script_path = blender_script
+    if blender_path:
+        ConvertSkp.blender_executable = blender_path
+    if blender_script:
+        ConvertSkp.script_path = blender_script
+
+    tasks = []
     
     # Use Live context manager to display all progress bars
     with Live(progress_group, refresh_per_second=12.5) as l:
 
-        async with asyncio.TaskGroup() as tg:
+        async with httpx.AsyncClient() as client, asyncio.TaskGroup() as tg:
             for skp_file in files:
                 
                 # Create ConvertSkp instance and pass progress bar + task ID
                 converter = await ConvertSkp( #type: ignore
-                    filename=skp_file.name,
                     source=skp_file,
+                    client=client,
                     glb_save_folder=output_folder,
                     progress_bar=conversion_progress,
                     console=l.console
                 )
                 
                 # Create task that updates overall progress when done
-                async def run_and_update(conv):
-                    try:
-                        await conv.convert()
-                    finally:
-                        overall_progress.update(overall_task_id, advance=1)
+                async def run_and_update(conv: ConvertSkp):
+                    success = await conv.convert(suppress_errors=True)
+
+                    overall_progress.update(overall_task_id, advance=1)
+
+                    return success
                 
-                tg.create_task(run_and_update(converter))
+                tasks.append(tg.create_task(run_and_update(converter)))
+
+        no_errors = sum(1 if task.result() is False else 0 for task in tasks)
         
         # Final message
         overall_progress.update(
             overall_task_id,
-            description="[bold green]All conversions complete![/bold green]"
+            description=f"[bold][green]All conversions complete![/green] [red]({no_errors} errors)[/red]"
         )
     
+    return
+
 
 @app.callback()
 def callback():
