@@ -1,10 +1,11 @@
-import httpx
 import asyncio
 from functools import wraps
 from pathlib import Path
 from typing import Optional
 from typing import Annotated
 
+import httpx
+import typer
 from click import Parameter
 from click import Context
 from click.shell_completion import CompletionItem
@@ -12,8 +13,7 @@ from rich import print
 from rich.console import Group
 from rich.live import Live
 from rich.panel import Panel
-from rich.progress import TimeElapsedColumn, BarColumn, TextColumn, Progress
-import typer
+from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
 from .csv_parse import csv_data_to_json
 from .model_server.model_convert import ConvertSkp
@@ -61,7 +61,7 @@ def setup(
     clone(force=force, ssh=ssh)
     copy_readme(force=force)
 
-def find_skp(ctx: Context, param: Parameter, incomplete: str):
+def find_skp(ctx: Context, param: Parameter, incomplete: str) -> list[CompletionItem]:
     # Using click CompletionItem allows spefifying type of completion ("file"),
     # which means that zsh file autocomplete will not take precedence
     # Thus we use click's shell_complete instead of typer's autocomplete
@@ -79,10 +79,10 @@ def find_skp(ctx: Context, param: Parameter, incomplete: str):
 @app.command(no_args_is_help=True)
 @coro
 async def model_convert(
-    files: Annotated[list[Path], typer.Argument(
-        exists=True, readable=True, 
-        help=".skp file(s) to convert (shell completion supported)", 
-        shell_complete=find_skp
+    files: Annotated[list[Path], typer.Argument( 
+        help=".skp file(s) to convert (shell completion supported)",
+        exists=True, readable=True,
+        shell_complete=find_skp #type: ignore
     )],
     output_folder: Annotated[Optional[Path], typer.Option(
         "--output", '-o',
@@ -143,8 +143,10 @@ async def model_convert(
     )
 
     # Add parameters not in __init__
-    ConvertSkp.blend_path = blender_path
-    ConvertSkp.script_path = blender_script
+    if blender_path:
+        ConvertSkp.blender_executable = blender_path
+    if blender_script:
+        ConvertSkp.script_path = blender_script
 
     tasks = []
     

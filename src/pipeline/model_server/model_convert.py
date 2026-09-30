@@ -1,19 +1,18 @@
+import asyncio
 import functools
-from signal import raise_signal
-from rich.live import Live
-from rich.progress import TextColumn, BarColumn, TimeElapsedColumn, Progress
-from rich.console import Console
+import io
+import re
+import time
+import zipfile
 from collections.abc import AsyncIterable
 from enum import Enum
 from pathlib import Path
-from urllib.parse import urlencode, urlunsplit, parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunsplit
 
-import re
-import time
-import io
-import zipfile
-import asyncio
 import httpx
+from rich.console import Console
+from rich.live import Live
+from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
 from ..config import load_config
 
@@ -66,7 +65,7 @@ class aobject(object):
     async def __init__(self):
         pass
 
-def notNone(message: str | None = None, Error_class: Exception = NotImplementedError):
+def notNone(message: str | None = None, Error_class: type[Exception] = NotImplementedError):
     "Ensure the return value is not None, else raise NotImplementedError"
     
     def wrapper(f):
@@ -104,19 +103,19 @@ class ConvertSkp(aobject):
 
     blender_executable = Path(config["convert"]["blender_exe"])
 
-    script_path = FUNTASIA_ROOT / config["convert"]["blender_script"]
+    script_path: Path = FUNTASIA_ROOT / config["convert"]["blender_script"]
 
-    skp_folder = FUNTASIA_ROOT / config["convert"]["skp_folder"]
+    skp_folder: Path = FUNTASIA_ROOT / config["convert"]["skp_folder"]
 
-    glb_folder = FUNTASIA_ROOT / config["convert"]["glb_folder"]
+    glb_folder: Path = FUNTASIA_ROOT / config["convert"]["glb_folder"]
 
-    blend_folder = FUNTASIA_ROOT / config["convert"]["blend_folder"]
+    blend_folder: Path = FUNTASIA_ROOT / config["convert"]["blend_folder"]
 
     skp_semaphore = asyncio.Semaphore(3)
 
     blender_semaphore = asyncio.Semaphore(1)
 
-    NO_OF_ATTEMPTS = config["convert"]["attempts"]
+    NO_OF_ATTEMPTS: int = config["convert"]["attempts"]
 
     async def __init__(
         self, 
@@ -181,7 +180,7 @@ class ConvertSkp(aobject):
             exist_ok = True
         )
 
-        self.glb_save_path = glb_save_folder / f"{filename}.glb"
+        self.glb_save_path = self.glb_save_folder / f"{filename}.glb"
 
         self.zip_save_path = self.blend_save_path.with_suffix(".zip")
 
@@ -225,10 +224,10 @@ class ConvertSkp(aobject):
     
         html = response.text
     
-        m = re.search(
-            r'uploadURL\s*:\s*"([^"]+)"',
-            html
-        ).group(1)     
+        if (m := re.search(r'uploadURL\s*:\s*"([^"]+)"', html)):
+            m = m.group(1)
+        else:
+            raise NotImplementedError("Could not get uploadURL from html")
     
         upload_params = parse_qs(
             urlparse(m).query
@@ -237,6 +236,9 @@ class ConvertSkp(aobject):
         s = upload_params.get("s", [None])[0]
         j = upload_params.get("j", [None])[0]
         cuid = upload_params.get("cuid", [None])[0]
+
+        if s is None or j is None or cuid is None:
+            raise NotImplementedError("Missing 's', 'j' or 'cuid' from params")
         
         return s, j, cuid
 
@@ -400,7 +402,7 @@ class ConvertSkp(aobject):
         return fcode
             
         
-    async def run_blender(self) -> bool:
+    async def run_blender(self):
         "Run blender and raise RuntimeError is failure"
 
         self.update_progress(f"[bold blue]Waiting for Blender: {self.blend_save_path.name}[/bold blue]")
@@ -474,7 +476,7 @@ class ConvertSkp(aobject):
 
             self.update_progress(f"[bold cyan]Downloading converted zip: {self.filepath.name}[/bold cyan]", advance=1)
 
-            await self.save_zipfile(zipurl)
+            await self.save_zipfile(zipurl) #type: ignore (zipurl will always be bound, last attempt will raise)
 
             self.console.print(f"[green]{self.filepath.name} converted to .blend successfully[/]")
 
