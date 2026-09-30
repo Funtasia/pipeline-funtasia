@@ -2,78 +2,59 @@
 
 import tomllib
 from pathlib import Path
+import re
+
 from dataclasses import dataclass, field, fields
 from typing import Optional, get_origin, get_args
 
 
-DEFAULTS = {
-
-}
-
-
-class Config:
-    # general
-    version: str
-
-    # convert
-    blender_exe : Path
-    blender_script: Path
-    glb_folder: Path
-    skp_folder: Path
-    blend_folder: Path
-    DEBUG: int
-
-    # dir
-    root: Path
-    assets: Path
-    app: Path
-    pipeline: Path
-
-
-    def __post_init__(self):
-        for f in fields(self):
-            value = getattr(self, f.name)
-            
-            origin = get_origin(f.type)
-            expected_types = get_args(f.type) if origin else (f.type,)
-            
-            if origin and not expected_types:
-                expected_types = (origin,)
-
-            if not isinstance(value, expected_types):
-                raise TypeError(f"Expected {f.name} to be {f.type}, got {type(value).__name__}")
-
 
 class Config:
     def __init__(self,config:dict[str,dict] = {}):
-        general = config.get("",None)
-        self.version = general.get("version")
-
-        convert = config.get("convert",{}})
-        self._blender_exe = convert.get("blender_exe")
-
-        self._blender_script = convert.get("blender_script")
-
-        self._glb_folder = convert.get("glb_folder")
-
-        self._skp_folder = convert.get("skp_folder")
-        self._blend_folder = convert.get("blend_folder")
-
-        self._DEBUG = convert.get("DEBUG")
 
         dir = config.get("dir",{})
 
-        self._root = dir.get("root")
-        self._assets = dir.get("assets")
-        self._app = dir.get("app")
-        self._pipeline = dir.get("pipeline")
+        self._root = Config.valid_path(dir.get("root",""),"Root Folder")
+        self._assets = Config.valid_path(self._root / dir.get("assets",""),"Assets Folder")
+        self._app = Config.valid_path(self._root / dir.get("app",""), "App Folder")
+        self._pipeline = Config.valid_path(self._root / dir.get("pipeline",""),"Pipeline Folder")
 
-    @property
-    def version(self):
-        return self._version
 
-    @version.setter
-    def version(self,)
+        general = config.get("general",{})
+
+        self.version = self.valid_version(general.get("version"))
+
+        convert = config.get("convert",{})
+
+        self._blender_exe = Config.valid_path(convert.get("blender_exe",""),"Blender Executable")
+        self._blender_script = Config.valid_path(self._root / convert.get("blender_script",""),"Blender Script")
+        self._glb_folder = Config.valid_path(self._root / convert.get("glb_folder",""),"GLB Folder")
+        self._skp_folder = Config.valid_path(convert.get("skp_folder",""),"SKP Folder")
+        self._blend_folder = Config.valid_path(convert.get("blend_folder",""),"Blend Folder")
+
+        debug = convert.get("DEBUG","")
+        self._DEBUG = debug if debug.isnumeric() else 0
+
+
+
+    @staticmethod
+    def valid_path(path:str,config_name) -> Path | bool:
+        _path = Path(path)
+        if isinstance(_path,Path) and _path.exists() and _path.is_absolute():
+            return _path
+        else:
+            raise TypeError(f"Incorrect configuration for {config_name}")
+
+    @staticmethod
+    def valid_version(version):
+        pattern = r"^v\.\d+\.\d+\.\d+.*$"
+        if re.match(pattern,version):
+            return version
+        else:
+            raise TypeError(f"Incorrect configuration for Version")
+
+
+
 
 def load_config():
     config_exists = False
@@ -86,7 +67,7 @@ def load_config():
             config_exists = True
             with open(directory/"config.toml","rb") as f:
                 data = tomllib.load(f)
-        if all(folder for folder in folders_to_check):
+        if all((directory / folder).exists() for folder in folders_to_check):
             Config()
 
     if not config_exists:
