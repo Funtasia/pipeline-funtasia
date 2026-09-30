@@ -3,13 +3,13 @@ import csv
 import json
 import re
 
-__all__ = ("csv_data_to_json")
+__all__ = ["csv_data_to_json"]
 
 def convert_ascii(s: str):
     if s.isascii():
         return s
 
-    def replace(m: re.match):
+    def replace(m: re.Match):
         m = ord(m.group(0))
 
         # em-dash and the like, U+2013-2015
