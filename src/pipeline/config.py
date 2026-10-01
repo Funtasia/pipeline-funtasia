@@ -1,209 +1,168 @@
 #!/usr/bin/env python3
 
+# run `python -m pipeline.config`` to dump config
+
+import platform
 import tomllib
-from pathlib import Path
 import re
+from pathlib import Path
+from typing import Any
 
-from dataclasses import dataclass, field, fields
-from typing import Optional, get_origin, get_args
+from jinja2 import Environment, FileSystemLoader
 
+FILENAME = "nipple_config.toml"
 
-DEFAULT_CONFIG = {
-    "app": Path("app-funtasia"),
-    "assets": Path("app-funtasia") / "assets-funtasia",
-    "blender_exe": "", #TODO Replace with auto detect function
-    "blender_script": Path("3dfiles-funtasia") / "misc" / "scripts" / "blender_script.py",
-    "glb_folder": Path("app-funtasia") / "assets-funtasia" / "model",
-    "skp_folder":Path("3dfiles-funtasia") / ".skp",
-    "glb_folder":Path("3dfiles-funtasia") / ".glb",
-    "DEBUG": 0,
-}
 
 class Config:
-    def __init__(self,config:dict[str,dict] = {},default_root: Path = Path('')):
-        self.default_root = default_root
-
-        general = config.get("general",{})
-
-        self._version = general.get("version")
-
-        dir = config.get("dir",{})
-
-        self._root = dir.get("root")
-        self._assets = dir.get("assets")
-        self._app = dir.get("app")
-
-
-        convert = config.get("convert",{})
-
-        self._blender_exe = convert.get("blender_exe")
-        self._blender_script = convert.get("blender_script")
-        self._glb_folder = convert.get("glb_folder")
-        self._skp_folder = convert.get("skp_folder")
-        self._blend_folder = convert.get("blend_folder")
-
-        self._DEBUG = convert.get("DEBUG")
-
-
-    @property
-    def version(self):
-        return self._version
-    @property
-    def root(self):
-        return self._root
-    @property
-    def assets(self):
-        return self._assets
-    @property
-    def app(self):
-        return self._app
-    @property
-    def blender_exe(self):
-        return self._blender_exe
-    @property
-    def blender_script(self):
-        return self._blender_script
-    @property
-    def glb_folder(self):
-        return self._glb_folder
-    @property
-    def skp_folder(self):
-        return self.skp_folder
-    @property
-    def blend_folder(self):
-        return self._blend_folder
-    @property
-    def DEBUG(self):
-        return self._DEBUG
-
-    @version.setter
-    def version(self,version):
-        pattern = r"^v\.\d+\.\d+\.\d+.*$"
-        if re.match(pattern,version):
-            self._version = version
-        else:
-            raise TypeError("Configuration for Version is invalid")
-
-
-    @root.setter
-    def root(self,root):
-        if path := self.validate_path(root):
-            self._root = path
-        elif path := self.validate_path(self.default_root):
-            self._root = path
-        else:
-            raise TypeError("Configuration for Root Folder is invalid")
-
-    @assets.setter
-    def assets(self,assets):
-        if path := self.validate_path(assets):
-            self._assets = path
-        elif path := self.validate_path(self.root / DEFAULT_CONFIG["assets"]):
-            self._assets = path
-        else:
-            raise TypeError("Configuration for Assets Folder is invalid") 
-
-    @app.setter
-    def app(self,app):
-        if path := self.validate_path(app):
-            self._app = path
-        elif path := self.validate_path(self.root / DEFAULT_CONFIG["app"]):
-            self._app = path
-        else:
-            raise TypeError("Configuration for Root Folder is invalid") 
-
-    @blender_exe.setter
-    def blender_exe(self,blender_exe):
-        if path := self.validate_path(blender_exe):
-            self._blender_exe = path
-        elif path := self.validate_path(DEFAULT_CONFIG["blender_exe"]):
-            self._blender_exe = path
-        else:
-            raise TypeError("Configuration for Blender Executable is invalid") 
-
-    @blender_script.setter
-    def blender_script(self,blender_script):
-        if path := self.validate_path(blender_script):
-            self._blender_script = path
-        elif path := self.validate_path(self.root / DEFAULT_CONFIG["blender_script"]):
-            self._blender_script = path
-        else:
-            raise TypeError("Configuration for Blender Script is invalid")
-        
-    @glb_folder.setter
-    def glb_folder(self,glb_folder):
-        if path := self.validate_path(glb_folder):
-            self._glb_folder = path
-        elif path := self.validate_path(self.root / DEFAULT_CONFIG["glb_folder"]):
-            self._glb_folder = path
-        else:
-            raise TypeError("Configuration for GLB Folder is invalid") 
-        
-    @skp_folder.setter
-    def skp_folder(self,skp_folder):
-        if path := self.validate_path(skp_folder):
-            self._skp_folder = path
-        elif path := self.validate_path(self.root / DEFAULT_CONFIG["skp_folder"]):
-            self._skp_folder = path
-        else:
-            raise TypeError("Configuration for SKP Folder is invalid") 
-        
-    @blend_folder.setter
-    def blend_folder(self,blend_folder):
-        if path := self.validate_path(blend_folder):
-            self._blend_folder = path
-        elif path := self.validate_path(self.root / DEFAULT_CONFIG["blend_folder"]):
-            self._blend_folder = path
-        else:
-            raise TypeError("Configuration for Blend Folder is invalid") 
-        
-    @DEBUG.setter
-    def DEBUG(self,DEBUG):
-        if DEBUG.isnumeric():
-            self._DEBUG = int(DEBUG)
-        else:
-            self._DEBUG = 0
-            print("[WARNING] Configuration for DEBUG is invalid.  A default of 0 will be used")
-
-
-    @staticmethod
-    def validate_path(path: Path | str) -> Path | bool:
-        if not isinstance(path,Path):
-            path = Path(path)
-
-        if path.is_absolute() and path.exists():
-            return path
-
-        return False
+    # General
+    version: str # required in __init__
     
-    @staticmethod
-    def validate_version(version):
-        pattern = r"^v\.\d+\.\d+\.\d+.*$"
-        if re.match(pattern,version):
-            return version
-        else:
-            raise TypeError("Configuration for Version is inalid.")
+    # Dir
+    root: Path # required in __init__
+    assets: Path = Path("app-funtasia/assets")
+    app: Path = Path("app-funtasia")
+
+    # Convert
+    blender_exe: Path # default value set later in __init__, may raise
+    blender_script: Path = Path("3dfiles-funtasia/misc/scripts/blender_script.py")
+    skp_folder: Path = Path("3dfiles-funtasia/.skp")
+    glb_folder: Path = Path("3dfiles-funtasia/.glb")
+    blend_folder: Path = Path("3dfiles-funtasua/.blend")
+
+    attempts: int = 2
+    DEBUG: int = 0
 
 
+    def __init__(self, config:dict[str, dict[str, Any]] = {}):
+        # set required values first
+        # WILL raise exception if values are missing / wrong type
+        self.root = config.get("dir", {}).get("root") # type: ignore
+        self.version = config.get("general", {}).get("version") # type: ignore
+
+        for subsection in config.values():
+            for k, v in subsection.items():
+                if k in ("root", "version"):
+                    continue
+                setattr(self, k, v)
+
+        # set defaults which may raise Error
+        if not getattr(self, "blender_exe"):
+            self.blender_exe = Path(get_blender_exe()).absolute()
+
+    def absoulte_validate_path(self, path: Path | str, root: Path | None) -> tuple[bool, Path]:
+        if not isinstance(path, Path | str):
+            raise TypeError(f"Expected path-like object (Path | str), got {type(path)}")
+        
+        path = Path(path)
+
+        if not path.is_absolute():
+            if root:
+                path = root / path
+            else:
+                path = path.absolute()
+
+        if path.exists():
+            return True, path
+
+        return False, path
+
+    def __setattr__(self, name: str, value: Any, /) -> None:
+        hints: dict[str, type] = self.__class__.__annotations__
+        if name not in hints:
+            raise TypeError(f"No attribute '{name}' in {self.__class__.__name__}")
+
+        if hints[name] is Path:
+            exists, value = self.absoulte_validate_path(value, root = self.root if name != "root" else None)
+            if not exists:
+                raise FileNotFoundError(f"Cannot find directory {value}")
+        
+        if not isinstance(value, hints[name]):
+            raise TypeError(f"Type mismatch for '{name}': expected {hints[name].__name__}, got {type(value).__name__}")
+
+        elif name == "version":
+            # see: https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string
+            # added optional 'v' at front
+            pattern = r"^v?(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
+            if not re.match(pattern, value):
+                raise TypeError("Configuration for Version is invalid")
+
+        super().__setattr__(name, value)
+
+    def __rich_repr__(self):
+        for attr in self.__class__.__annotations__:
+            yield attr, getattr(self, attr)
 
 
-def load_config():
-    config_exists = False
+def load_config() -> Config:
     path = Path.cwd()
 
     for directory in [path, *path.parents]:
-        if (directory / "config.toml").is_file():
-            config_exists = True
-            with open(directory/"config.toml","rb") as f:
+        if (directory / FILENAME).is_file():
+            with open(directory / FILENAME, "rb") as f:
                 data = tomllib.load(f)
 
             return Config(
-                config=data,
-                default_root=directory
+                config={"dir": {"root": directory}} | data,
             )
 
-    if not config_exists:
-        print("[CRITICAL] No configuration file found")
-    
+    print("[CRITICAL] No configuration file found")
+    raise FileNotFoundError(f"Could not find {FILENAME}")
 
-    raise FileNotFoundError("Could not find Funtasia config.toml")
+
+def get_blender_exe(force_default=False) -> str:
+    if platform.system() == "Windows":
+        # version agnostic
+        matches = list(Path().glob("C:/Program Files/Blender Foundation/Blender*/blender.exe"))
+        if not matches:
+            if force_default:
+                return "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe"
+            raise NotImplementedError(f"Cannot detect blender, please make sure it is installed and put its path in {FILENAME}.")
+        elif len(matches) > 1:
+            print(f"Multiple blender found. Specify correct version in {FILENAME}")
+        return str(matches[0])
+    
+    elif platform.system() == "Linux":
+        blender_exe = "/usr/bin/blender" # wow such nice path
+    elif platform.system() == "Darwin":
+        blender_exe = "/Applications/Blender.app/Contents/MacOS/Blender"
+    else:
+        raise NotImplementedError(f"bro wtf why are you on {platform.system()}")
+
+    if not force_default and not Path(blender_exe).exists():
+        raise NotImplementedError(f"Cannot detect blender, please make sure it is installed and put its path in {FILENAME}.")
+
+    return blender_exe
+
+    
+def write_config(overwrite=False):
+    """
+    Set root to cwd and write default config to root.
+
+    Should be run only once to setup.
+    """
+
+    # Use Jinja instead of writing default_config to toml
+    # because writing toml requires external library, 
+    # but Jinja is already a requirement for Quart.
+    
+    root = Path()
+    config_path = root / FILENAME
+
+    if not overwrite and config_path.exists():
+        raise FileExistsError("Config file `nipple_config.toml` already exists.")
+
+
+    jinja_env = Environment(loader=FileSystemLoader(Path(__file__).parent))
+    template = jinja_env.get_template("nipple_config.toml.jinja")
+    config_file = template.render(
+        blender = get_blender_exe(force_default=True),
+        root = str(root.absolute()),
+    )
+
+    with open(config_path, 'w') as f:
+        f.write(config_file)
+
+if __name__ == "__main__":
+    from rich.pretty import pprint
+    pprint(load_config())
+

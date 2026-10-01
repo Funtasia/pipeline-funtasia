@@ -99,23 +99,9 @@ class ConvertSkp(aobject):
 
     config = load_config()
 
-    FUNTASIA_ROOT = Path(config["dir"]["root"])
-
-    blender_executable = Path(config["convert"]["blender_exe"])
-
-    script_path: Path = FUNTASIA_ROOT / config["convert"]["blender_script"]
-
-    skp_folder: Path = FUNTASIA_ROOT / config["convert"]["skp_folder"]
-
-    glb_folder: Path = FUNTASIA_ROOT / config["convert"]["glb_folder"]
-
-    blend_folder: Path = FUNTASIA_ROOT / config["convert"]["blend_folder"]
-
     skp_semaphore = asyncio.Semaphore(3)
 
     blender_semaphore = asyncio.Semaphore(1)
-
-    NO_OF_ATTEMPTS: int = config["convert"]["attempts"]
 
     async def __init__(
         self, 
@@ -153,7 +139,7 @@ class ConvertSkp(aobject):
 
         else:        
 
-            self.filepath = ConvertSkp.skp_folder / filename / f"{filename}.skp"
+            self.filepath = self.config.skp_folder / filename / f"{filename}.skp"
             
             if not self.filepath.is_file():
                 raise FileNotFoundError(f"Provided filepath - {source} is not a valid filepath")
@@ -163,7 +149,7 @@ class ConvertSkp(aobject):
         if blend_save_folder is not None:
             blend_save_folder = blend_save_folder / filename
         else:
-            blend_save_folder = ConvertSkp.blend_folder / filename
+            blend_save_folder = self.config.blend_folder / filename
 
         blend_save_folder.mkdir(
             parents = True,
@@ -173,7 +159,7 @@ class ConvertSkp(aobject):
         self.blend_save_path = blend_save_folder / f"{filename}.blend"
 
         # Defines the path to save the .glb
-        self.glb_save_folder = glb_save_folder or ConvertSkp.glb_folder 
+        self.glb_save_folder = glb_save_folder or self.config.glb_folder 
 
         self.glb_save_folder.mkdir(
             parents = True,
@@ -412,11 +398,11 @@ class ConvertSkp(aobject):
             self.update_progress(f"[bold blue]Converting with Blender: {self.blend_save_path.name}[/bold blue]", advance=1)
 
             command = [
-                str(self.blender_executable),
+                str(self.config.blender_exe),
                 "--background",
                 str(self.blend_save_path),
                 "--python",
-                str(self.script_path),
+                str(self.config.blender_script),
             ]
 
             if self.glb_save_folder is not None:
@@ -457,7 +443,7 @@ class ConvertSkp(aobject):
 
             self.update_progress(f"[bold cyan]Uploading for conversion: {self.filepath.name}[/bold cyan]")
 
-            for attempt in range(ConvertSkp.NO_OF_ATTEMPTS):
+            for attempt in range(self.config.attempts):
                 try:
                     fcode = await self.upload()
                     zipurl = await self.get_zip_download_url(fcode)
@@ -467,11 +453,11 @@ class ConvertSkp(aobject):
                     self.console.print(
                         f"[red]Failed to get {self.filepath.name}:[/red]",
                         f"[blue]{type(e).__name__}[/blue]: {e}",
-                        f"[yellow](attempt {attempt+1}/{ConvertSkp.NO_OF_ATTEMPTS})[/yellow]"
+                        f"[yellow](attempt {attempt+1}/{self.config.attempts})[/yellow]"
                     )
 
                     # attempt is 0-indexed
-                    if attempt + 1 == ConvertSkp.NO_OF_ATTEMPTS:
+                    if attempt + 1 == self.config.attempts:
                         raise
 
             self.update_progress(f"[bold cyan]Downloading converted zip: {self.filepath.name}[/bold cyan]", advance=1)

@@ -1,0 +1,19 @@
+[general]
+version = "v0-0-0"
+
+[convert]
+blender_exe = "{{ blender }}" #Should use forward slashes
+blender_script = "3dfiles-funtasia/misc/scripts/blender_script.py"
+
+glb_folder = "app-funtasia/assets-funtasia/model"
+
+skp_folder = "3dfiles-funtasia/.skp"
+blend_folder = "3dfiles-funtasia/.blend"
+
+attempts = 2
+
+[dir]
+root = "{{ root }}" #To be replaced during setup
+assets = "app-funtasia/assets-funtasia"
+app = "app-funtasia"
+pipeline = "pipeline-funtasia"

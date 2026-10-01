@@ -17,9 +17,6 @@ from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
 from .csv_parse import csv_data_to_json
 from .model_server.model_convert import ConvertSkp
-from .setup.clone import clone
-from .setup.readme import copy_readme
-
 
 def coro(f):
     """
@@ -48,7 +45,7 @@ def parse_data(
     csv_data_to_json(filename_in, filename_out, prefer_ascii)
 
 @app.command()
-def setup(
+def setup_env(
     force: Annotated[bool, typer.Option("--force/", "-f/", help="Override conflicting files.")] = False,
     ssh: Annotated[bool, typer.Option("--ssh/--https", help="Whether to use ssh or https to clone the repositories.")] = False
 ):
@@ -58,8 +55,12 @@ def setup(
 
     Will be called by the setup script
     """
+    from .setup.clone import clone
+    from .setup.readme import copy_readme
+    from .config import write_config
     clone(force=force, ssh=ssh)
     copy_readme(force=force)
+    write_config(overwrite=force)
 
 def find_skp(ctx: Context, param: Parameter, incomplete: str) -> list[CompletionItem]:
     # Using click CompletionItem allows spefifying type of completion ("file"),
@@ -144,9 +145,9 @@ async def model_convert(
 
     # Add parameters not in __init__
     if blender_path:
-        ConvertSkp.blender_executable = blender_path
+        ConvertSkp.config.blender_exe = blender_path
     if blender_script:
-        ConvertSkp.script_path = blender_script
+        ConvertSkp.config.blender_script = blender_script
 
     tasks = []
     
