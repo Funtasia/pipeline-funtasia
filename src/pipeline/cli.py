@@ -15,8 +15,6 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
-from .csv_parse import csv_data_to_json
-from .model_server.model_convert import ConvertSkp
 
 def coro(f):
     """
@@ -42,6 +40,8 @@ def parse_data(
     Parse csv booth data in `filename_in` and
     output json data to `filename_out`
     """
+    from .csv_parse import csv_data_to_json
+    
     csv_data_to_json(filename_in, filename_out, prefer_ascii)
 
 @app.command()
@@ -113,6 +113,9 @@ async def model_convert(
 
     Read the config file and cli arguments. In case of conflicts, cli arguments take precedence.
     """
+
+    from .model_server.model_convert import ConvertSkp
+
     # Create progress bar for tracking all conversions
     conversion_progress = Progress(
         TextColumn("[bold blue]{task.description}"),

@@ -93,7 +93,7 @@ class Config:
             yield attr, getattr(self, attr)
 
 
-def load_config() -> Config:
+def load_config(force_default=False) -> Config:
     path = Path.cwd()
 
     for directory in [path, *path.parents]:
@@ -104,8 +104,14 @@ def load_config() -> Config:
             return Config(
                 config={"dir": {"root": directory}} | data,
             )
-
+    
     print("[CRITICAL] No configuration file found")
+    
+    if force_default:
+        return Config(
+            config={"general": {"version": "v67.69.420"}, "dir": {"root": str(Path())}}
+        )
+    
     raise FileNotFoundError(f"Could not find {FILENAME}")
 
 

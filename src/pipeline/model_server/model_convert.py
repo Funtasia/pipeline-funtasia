@@ -97,8 +97,6 @@ class ConvertSkp(aobject):
     >>>     await conv.convert()
     """
 
-    config = load_config()
-
     skp_semaphore = asyncio.Semaphore(3)
 
     blender_semaphore = asyncio.Semaphore(1)
@@ -127,6 +125,9 @@ class ConvertSkp(aobject):
 
         All other output will go to `console`, which defaults to Console().
         """
+
+        # load config only on instance creation
+        config = load_config()
         
         if isinstance(source,Path):
             filename = source.stem
