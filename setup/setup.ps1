@@ -8,4 +8,4 @@ python3 -m venv .venv
 pip install git+https://github.com/Funtasia/pipeline-funtasia
 
 # Start setup
-nipple setup
+nipple setup all

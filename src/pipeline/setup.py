@@ -1,13 +1,28 @@
-from pathlib import Path
 import shutil
 import subprocess
 import subprocess
 import sys
+from pathlib import Path
+from shutil import copy
+from typing import Annotated
 from urllib.parse import urlsplit
 
+import typer
 from rich import print
 from rich.live import Live
 from rich.text import Text
+
+from .config import write_config
+
+app = typer.Typer(name="setup", no_args_is_help=True)
+
+@app.callback()
+def callback():
+    """
+    Utility to setup the environement for Funtasia developement. 
+    Run `nipple setup all` to setup everything. 
+    This should typically already been run by the setup script.
+    """
 
 def get_target_dir(url):
     _, _, path, _, _ = urlsplit(url)
@@ -49,7 +64,7 @@ def clone_repo(url: str):
     prev_line = ""
 
     with Live() as live:
-        for line in proc.stderr:
+        for line in proc.stderr: # type: ignore
             if prev_line.endswith('.'):
                 live.console.print(format_line(prev_line))
             
@@ -58,19 +73,15 @@ def clone_repo(url: str):
             live.update(format_line(line))
             prev_line = line
 
-
-            # m = percent_re.search(line)
-            # if m and progress:
-            #     pct = int(m.group(1))
-            #     progress(pct, 100)
-
-
     returncode = proc.wait()
 
     return returncode
 
-
-def clone(force: bool = False, ssh = False):
+@app.command()
+def clone(
+    force: Annotated[bool, typer.Option("--force/", "-f/", help="Override conflicting files.")] = False,
+    ssh: Annotated[bool, typer.Option("--ssh/--https", help="Whether to use ssh or https to clone the repositories.")] = False
+):
     """
     Clone the Funtasia repos onto the machine.
 
@@ -106,7 +117,40 @@ def clone(force: bool = False, ssh = False):
             if not ssh:
                 print("[yellow]hint: [/][bright_black]If facing authentication issues with https, try using ssh authenticaation with 'nipple setup --ssh' instead[/]")
             sys.exit(exit_code)
-        
-if __name__ == "__main__":
-    clone()
-        
+
+
+
+@app.command(name="get-readme")
+def copy_readme(
+    force: Annotated[bool, typer.Option("--force/", "-f/", help="Override conflicting files.")] = False,
+):
+    readme = Path(__file__).parent / "README.md"
+    destination = Path() / "README.md"
+
+    if not force and destination.exists():
+        raise FileExistsError
+
+    copy(readme, destination)
+
+@app.command()
+def init_config(
+    force: Annotated[bool, typer.Option("--force/", "-f/", help="Override conflicting files.")] = False,
+):
+    """
+    Write the default config file to $PWD, and get default values for certain values.
+
+    Will dynamically set values for:
+    
+        - `root`: $PWD
+        - `blender_exe`: Auto-detect blender executable based on OS.
+    """
+    write_config(overwrite=force)
+
+@app.command("all")
+def setup_all(
+    force: Annotated[bool, typer.Option("--force/", "-f/", help="Override conflicting files.")] = False,
+    ssh: Annotated[bool, typer.Option("--ssh/--https", help="Whether to use ssh or https to clone the repositories.")] = False
+):
+    clone(force, ssh)
+    copy_readme(force)
+    write_config(force)

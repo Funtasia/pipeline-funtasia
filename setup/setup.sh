@@ -12,4 +12,4 @@ source .venv/bin/activate
 pip install git+https://github.com/Funtasia/pipeline-funtasia
 
 # Start setup
-nipple setup
+nipple setup all

@@ -15,6 +15,7 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
+from .setup import app as setup_app
 
 def coro(f):
     """
@@ -30,6 +31,9 @@ def coro(f):
 
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="markdown")
 
+app.add_typer(setup_app)
+
+
 @app.command("parse-data")
 def parse_data(
     filename_in: Annotated[Path, typer.Argument(exists=True)],
@@ -44,23 +48,6 @@ def parse_data(
     
     csv_data_to_json(filename_in, filename_out, prefer_ascii)
 
-@app.command()
-def setup_env(
-    force: Annotated[bool, typer.Option("--force/", "-f/", help="Override conflicting files.")] = False,
-    ssh: Annotated[bool, typer.Option("--ssh/--https", help="Whether to use ssh or https to clone the repositories.")] = False
-):
-    """
-    Setup the environment by cloning the 
-    Funtasia repositories
-
-    Will be called by the setup script
-    """
-    from .setup.clone import clone
-    from .setup.readme import copy_readme
-    from .config import write_config
-    clone(force=force, ssh=ssh)
-    copy_readme(force=force)
-    write_config(overwrite=force)
 
 def find_skp(ctx: Context, param: Parameter, incomplete: str) -> list[CompletionItem]:
     # Using click CompletionItem allows spefifying type of completion ("file"),
@@ -76,6 +63,7 @@ def find_skp(ctx: Context, param: Parameter, incomplete: str) -> list[Completion
         for file in Path().glob(glob, case_sensitive=True) 
         if file.is_file() and str(file) not in ctx.params.get('files', ())
     ]
+
 
 @app.command(no_args_is_help=True)
 @coro
@@ -195,6 +183,7 @@ def callback():
     """
     CLI tool to process data relating to Funtasia.
     """
+
 
 if __name__ == '__main__':
     app()
