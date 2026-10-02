@@ -22,6 +22,21 @@ def coro(f):
     Wrap the async function with asyncio.run for use with app.command
     
     See https://github.com/pallets/click/issues/85#issuecomment-503464628
+
+    E.g.
+
+    >>> @coro
+    >>> async def foo():
+    >>>     ...
+    >>> 
+    >>> foo()
+
+    is equivalent to:
+
+    >>> async def foo()
+    >>>     ...
+    >>> 
+    >>> asyncio.run(foo())
     """
     @wraps(f)
     def wrapper(*args, **kwargs):
@@ -36,13 +51,26 @@ app.add_typer(setup_app)
 
 @app.command("parse-data")
 def parse_data(
-    filename_in: Annotated[Path, typer.Argument(exists=True)],
-    filename_out: Annotated[Path, typer.Argument(writable=True)] = Path("funtasia_data.json"),
-    prefer_ascii: Annotated[bool, typer.Option(help="Convert common non-ASCII characters into their ASCII equivalent")] = True
+    filename_in: Annotated[
+        Path, 
+        typer.Argument(exists=True)
+    ],
+    filename_out: Annotated[
+        Path, 
+        typer.Argument(writable=True)
+    ] = Path("funtasia_data.json"),
+    prefer_ascii: Annotated[
+        bool, 
+        typer.Option(help="Convert common non-ASCII characters into their ASCII equivalent")
+    ] = True
 ):
     """
     Parse csv booth data in `filename_in` and
-    output json data to `filename_out`
+    output json data to `filename_out`.
+
+    `prefer_ascii` will convert dashes to 
+    the ASCII dash '-', and quotation marks 
+    to their ASCII equivalent (' and ").
     """
     from .csv_parse import csv_data_to_json
     
@@ -153,6 +181,8 @@ async def model_convert(
                     source=skp_file,
                     client=client,
                     glb_save_folder=output_folder,
+                    blend_save_folder=blender_folder,
+                    override=force,
                     progress_bar=conversion_progress,
                     console=l.console
                 )

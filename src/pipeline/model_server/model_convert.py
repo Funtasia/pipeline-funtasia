@@ -14,7 +14,7 @@ from rich.console import Console
 from rich.live import Live
 from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
-from ..config import load_config
+from ..config import Config, load_config
 
 class Method(Enum):
     GET = "get"
@@ -97,8 +97,9 @@ class ConvertSkp(aobject):
     >>>     await conv.convert()
     """
 
-    skp_semaphore = asyncio.Semaphore(3)
+    config: Config
 
+    skp_semaphore = asyncio.Semaphore(3)
     blender_semaphore = asyncio.Semaphore(1)
 
     async def __init__(
@@ -113,7 +114,9 @@ class ConvertSkp(aobject):
     ):
         """
         If `source` is not a Path, it is treated as the filename,
-        then try to use skp_folder / filename / filename.skp 
+        then try to use skp_folder / filename / filename.skp.
+        If `source` is a Path but the file does not exist, 
+        find the file using method above using its filename.
         (filename should not have file extention)
 
         If override (default True), replace existing files and folders.
