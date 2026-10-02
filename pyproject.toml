@@ -1,7 +1,7 @@
 [project]
 name = "funtasia-pipeline"
 dynamic = ["version"]
-requires-python = ">= 3.8"
+requires-python = ">= 3.11"
 description = "Tool to generate assets for Funtasia 3D map"
 readme = "README.md"
 
