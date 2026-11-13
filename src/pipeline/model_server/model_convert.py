@@ -130,7 +130,7 @@ class ConvertSkp(aobject):
         """
 
         # load config only on instance creation
-        config = load_config()
+        self.config = load_config()
         
         if isinstance(source,Path):
             filename = source.stem
