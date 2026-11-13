@@ -1,55 +1,34 @@
 import asyncio
 import functools
 import io
-import re
+import logging
+import random
 import time
 import zipfile
 from collections.abc import AsyncIterable
 from enum import Enum
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urlparse, urlunsplit
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlsplit, urlunsplit
 
 import httpx
+from httpx._transports import base
 from rich.console import Console
 from rich.live import Live
+from rich.logging import RichHandler
 from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
 from ..config import Config, load_config
 
+
+# httpcore and httpx will spam a lot to the terminal otherwise
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(10 + logging.getLogger().level)
+
+logger = logging.getLogger(__name__)
+
 class Method(Enum):
     GET = "get"
     POST = "post"
-    
-
-async def make_request(
-    client: httpx.AsyncClient, 
-    url: httpx.URL | str, 
-    method: Method, 
-    /, 
-    timeout: int = 120, 
-    content: AsyncIterable[bytes] | bytes | str | None = None
-) -> httpx._models.Response:
-    """
-    Make a request for `url` using `client` based on `method`.
-
-    `content` will be sent only when Method.POST
-    """
-    match method:
-        case Method.GET:
-            response = await client.get(
-                url,
-                timeout=timeout
-            )
-        case Method.POST:
-            response = await client.post(
-                url,
-                timeout=timeout,
-                content=content
-            )
-
-    response.raise_for_status()
-    return response 
-
     
 class aobject(object):
     """
@@ -204,69 +183,66 @@ class ConvertSkp(aobject):
 
 
     async def get_env(self) -> tuple[str, str, str]:
-            
-        response = await make_request(
-            self.client,
-            "https://3dencoder.com/SKP-to-blend",
-            Method.GET,
-            timeout = 10
-        )
-    
-        html = response.text
-    
-        if (m := re.search(r'uploadURL\s*:\s*"([^"]+)"', html)):
-            m = m.group(1)
-        else:
-            raise NotImplementedError("Could not get uploadURL from html")
-    
-        upload_params = parse_qs(
-            urlparse(m).query
-        )
-    
-        s = upload_params.get("s", [None])[0]
-        j = upload_params.get("j", [None])[0]
-        cuid = upload_params.get("cuid", [None])[0]
+        """
+        Return a tuple of `tkurl`, `upurl`, `surl` 
 
-        if s is None or j is None or cuid is None:
-            raise NotImplementedError("Missing 's', 'j' or 'cuid' from params")
+        Refer to the original js at https://www.3dwhere.com/conv/model-to-blend
+        """
+
+        # cuid is 16-byte hex string (32 chars) that represents a fingerprint from FingerprintJS (from a hash function)
+        # by randomly generating a new one, we get around rate limits (and also no way to check real fingerprint)
+        cuid = random.randbytes(16).hex()
+        logger.debug(f"cuid: {cuid}")
+
+        response = await self.client.get(
+            "https://api.3dwhere.com/account/url/convupload", 
+            params={'cuid': cuid},
+            timeout=10
+        )
         
-        return s, j, cuid
+        result: dict = response.raise_for_status().json()
+        tkurl = result.get('tkurl', '')
+        upurl = result.get('upurl', '')
+        surl = result.get('surl', '')
+    
+        if response.status_code != 200 or not all((tkurl, upurl, surl)):
+            raise NotImplementedError(f"Error getting tkurl, upurl, surl: {result.get('message', '')}")
+
+        logger.debug(f"tkurl: {tkurl}")
+        logger.debug(f"upurl: {upurl}")
+        logger.debug(f"surl: {surl}")
+
+        return tkurl, upurl, surl
+
+    @staticmethod
+    def f_get_random():
+        # source: https://www.3dwhere.com/loong/js/supload/js/stream-v1.js
+        # used to add a dummy get param???
+        return str(time.time_ns() // 1_000_000)[8:]
+
+    @staticmethod
+    def f_add_vars(json: dict, url):
+        parts = urlsplit(url) 
+        new_query = parse_qs(parts.query) | json
+        return str(urlunsplit(parts._replace(query=urlencode(new_query,doseq=True))))
 
     @notNone(message="Did not get token (token is None)")
-    async def get_token(self, s, cuid) -> str:
-    
-        tk_params = {
-            "Method": "tk",
-            "cuid": cuid,
-            "s":s
-        } | self.file_params
-    
-        token_url = urlunsplit((
-            "https",
-            "e1.3dwhere.com",
-            "/eupload.ashx",
-            urlencode(tk_params),
-            ""
-        ))
-    
-        self.console.print(f"TokenUrl: {token_url}\n")
+    async def get_token(self, tkurl) -> str:
 
-        response = await make_request(
-            self.client,
-            token_url,
-            Method.GET,
-            timeout=50
+        response = await self.client.get(
+            f"{self.f_add_vars(self.file_params, tkurl)}&{self.f_get_random()}",
+            timeout = 20
         )
 
-        response = response.json()
+        response = response.raise_for_status().json()
         token = response.get("token")
 
-        self.console.print(f"Token: {token}")
+        logger.debug(f"Token: {token}")
     
         return token
 
     @notNone(message="Did not get fcode (fcode is None)")
-    async def get_fcode(self, token, s, j, cuid) -> str:
+    async def get_fcode(self, upurl, token) -> str:
         """
         Uploads .skp model file and obtains a code: 'fcode' which is subsequently used 
         to obtain the link to download the zip file
@@ -274,61 +250,45 @@ class ConvertSkp(aobject):
     
         upload_params = {
             "Method": "upload",
-            "token": token,
-            "client": "html5",
+            "to": "blend",
             "percen": 10,
-            "s": s,
-            "j": j,
-            "cuid": cuid
-        } | self.file_params
-    
-        upload_url = urlunsplit((
-            "https",
-            "e1.3dwhere.com",
-            "/eupload.ashx",
-            urlencode(upload_params),
-            ""
-        ))
-    
-        self.console.print("Upload:", upload_url, "\n")
+            "token": token,
+        } | self.file_params | {self.f_get_random(): ''}
 
-        f = self.filepath.open("rb")
-        data = f.read()
-        f.close()
+        url = self.f_add_vars(upload_params, upurl)
+    
+        with self.filepath.open("rb") as f:
+            data = f.read()
 
-        response = await make_request(
-            self.client,
-            upload_url,
-            Method.POST,
-            timeout = 240,
+        logger.debug(f"Loaded '{self.filepath}', preparing to upload")
+
+        # for some reason the original site also did a get request on the upload endpoint
+        # no idea why
+        upload_get = await self.client.get(
+            url,
+            timeout = 120
+        )
+
+        logger.debug(f"upload_get: {upload_get.json()}")
+
+        response = await self.client.post(
+            url,
+            timeout = 120,
             content = data
         )
 
-        response = response.json()
+        response = response.raise_for_status().json()
         fcode = response.get("message")
     
         return fcode
 
     @notNone(message="Request timed out without getting zipurl", Error_class=TimeoutError)
-    async def get_zip_download_url(self, fcode: str) -> str:
+    async def get_zip_download_url(self, base_url, fcode: str) -> str:
         """
         Using the 'fcode' returned by 'get_fcode()', it obtains the download link for
         the zip file
         """
-    
-        zipurl_params = {
-            "action": "getinfo",
-            "fcode": fcode
-        }
-    
-        zipurl_url = urlunsplit((
-            "https",
-            "e1.3dwhere.com",
-            "/json.aspx",
-            urlencode(zipurl_params),
-            ""
-        ))
-    
+        
         zipurl = None
         
         start = time.monotonic()
@@ -337,20 +297,23 @@ class ConvertSkp(aobject):
         # thus keep trying with 2s interval until zipurl appears
         while zipurl is None:
 
-            response = await make_request(
-                self.client,
-                zipurl_url,
-                Method.POST,
+            response = await self.client.get(
+                urljoin(base_url, '/jsonconv.aspx'),
+                params = {
+                    "action": "getinfo",
+                    "fcode": fcode
+                },
                 timeout = 10
             )
 
-            response = response.json()
+            response = response.raise_for_status().json()
+            logger.debug(f"zipurl request: {response}")
             zipurl = response.get("zipfile")
     
             if time.monotonic() - start > 120:
                 break
     
-            await asyncio.sleep(2)
+            await asyncio.sleep(3)
     
         return zipurl
     
@@ -360,37 +323,18 @@ class ConvertSkp(aobject):
         zip file and the .blend file.
         """
 
-        response = await make_request(
-            self.client,
+        response = await self.client.get(
             zipurl,
-            Method.GET,
             timeout=240
         )
     
-        self.zip_save_path.write_bytes(response.content)
+        self.zip_save_path.write_bytes(response.raise_for_status().content)
     
         with zipfile.ZipFile(io.BytesIO(response.content)) as z:
     
             file = z.namelist()[0]
             data = z.read(file)
             self.blend_save_path.write_bytes(data)
-    
-
-    async def upload(self) -> str:
-        "Upload file and return fcode"
-        s, j, cuid = await self.get_env()
-
-        token = await self.get_token(s, cuid)
-
-        fcode = await self.get_fcode(
-            token,
-            s,
-            j,
-            cuid
-        )
-
-        return fcode
-            
         
     async def run_blender(self):
         "Run blender and raise RuntimeError is failure"
@@ -412,7 +356,7 @@ class ConvertSkp(aobject):
             if self.glb_save_folder is not None:
                 command += ["--", "--glb", str(self.glb_save_folder)]
 
-            self.console.print(f"Starting Blender: {self.blend_save_path}")
+            logger.info(f"Starting Blender: {self.blend_save_path}")
 
             process = await asyncio.create_subprocess_exec(
                 *command,
@@ -424,13 +368,12 @@ class ConvertSkp(aobject):
             output = stdout.decode(errors="replace")
 
             if process.returncode != 0:
-                self.console.print(
-                    f"[red]Blender failed for {self.blend_save_path}",
-                    f"(exit code {process.returncode})[/]"
+                logger.error(
+                    f"[red]Blender failed for {self.blend_save_path} (exit code {process.returncode})[/]"
                 )
                 raise RuntimeError(f"Blender failed with exit code {process.returncode}")
 
-            self.console.print(f"[green]Blender completed: {self.blend_save_path}[/]")
+            logger.info(f"Blender completed: {self.blend_save_path}")
 
 
     async def _convert(self):
@@ -449,16 +392,19 @@ class ConvertSkp(aobject):
 
             for attempt in range(self.config.attempts):
                 try:
-                    fcode = await self.upload()
-                    zipurl = await self.get_zip_download_url(fcode)
+                    # main logic code
+                    tkurl, upurl, surl = await self.get_env()
+                    token = await self.get_token(tkurl)
+                    fcode = await self.get_fcode(upurl, token)
+                    logger.info(f"Got token and fcode for {self.filepath.name}")
+                    zipurl = await self.get_zip_download_url(surl, fcode)
+                    logger.info(f"Got download link for {self.filepath.name}")
+                    
+                    # no errors
                     break
 
                 except Exception as e:
-                    self.console.print(
-                        f"[red]Failed to get {self.filepath.name}:[/red]",
-                        f"[blue]{type(e).__name__}[/blue]: {e}",
-                        f"[yellow](attempt {attempt+1}/{self.config.attempts})[/yellow]"
-                    )
+                    logger.warning(f"Convert {self.filepath.name} failed: {type(e).__name__}: {e} (attempt {attempt+1}/{self.config.attempts})")
 
                     # attempt is 0-indexed
                     if attempt + 1 == self.config.attempts:
@@ -468,11 +414,13 @@ class ConvertSkp(aobject):
 
             await self.save_zipfile(zipurl) #type: ignore (zipurl will always be bound, last attempt will raise)
 
-            self.console.print(f"[green]{self.filepath.name} converted to .blend successfully[/]")
+        logger.info(f"Converted {self.filepath.name} -> {self.blend_save_path.name}")
 
         await self.run_blender()
+
+        logger.info(f"Converted {self.blend_save_path.name} {self.filepath.name} (done)")
         
-        self.update_progress(f"[bold green]✓ Done: {self.filepath.name}[/bold green]", advance=1)
+        self.update_progress(f"[bold green]✓ Done: {self.filepath.name} -> {self.glb_save_path.name}[/bold green]", advance=1)
 
 
     async def convert(self, suppress_errors=False) -> bool:
@@ -495,6 +443,8 @@ class ConvertSkp(aobject):
                 self.update_progress(f"[red]✗ Failed: {self.filepath.name} ({type(e).__name__}: {e})")
                 self.progress_bar.stop_task(self.task_id)
 
+            logger.error(f"Conversion of '{self.filepath.name}' failed: ({type(e).__name__}: {e}")
+
             if not suppress_errors:
                 raise RuntimeError("Conversion of model failed") from e
 
@@ -509,6 +459,7 @@ async def main():
         TimeElapsedColumn(),
         expand=True
     )
+
 
     with Live(conversion_progress) as l:
 
@@ -529,4 +480,6 @@ async def main():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(format="%(message)s", level=logging.NOTSET, handlers=[RichHandler()])
+    logging.getLogger("httpcore").setLevel(logging.WARN)
     asyncio.run(main())

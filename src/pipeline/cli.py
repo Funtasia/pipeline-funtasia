@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from functools import wraps
 from pathlib import Path
 from typing import Optional
@@ -12,6 +13,7 @@ from click.shell_completion import CompletionItem
 from rich import print
 from rich.console import Group
 from rich.live import Live
+from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
@@ -209,11 +211,22 @@ async def model_convert(
 
 
 @app.callback()
-def callback():
+def callback(verbose: Annotated[int, typer.Option('-v', '--verbose', count=True)] = 0):
     """
     CLI tool to process data relating to Funtasia.
     """
 
+    verbosity = max(0, 30 - (10 * verbose))
+
+    logging.basicConfig(
+        level=verbosity,
+        format="%(message)s",
+        datefmt="[%X]",
+        handlers=[RichHandler()]
+    )
+
+    logging.info(f"Verbosity level set to {min(3, verbose)} (python log level {verbosity})")
+        
 
 if __name__ == '__main__':
     app()
