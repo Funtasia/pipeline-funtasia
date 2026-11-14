@@ -1,0 +1,41 @@
+name: Build and release zipapp
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install build dependencies and stage package
+        run: |
+          rm -rf build/app
+          pip install --target build/app .
+
+      - name: Build zipapp
+        run: |
+          python -m zipapp build/app -o nipple.pyz -p "/usr/bin/env python3" -m "pipeline.cli:app" -c
+
+      - name: Smoke test
+        run: python nipple.pyz --help
+
+      - name: Create release and upload asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --generate-notes --title "$GITHUB_REF_NAME"
+          gh release upload "$GITHUB_REF_NAME" nipple.pyz --clobber
