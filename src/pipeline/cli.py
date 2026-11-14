@@ -80,7 +80,7 @@ def parse_data(
 
 
 def find_skp(ctx: Context, param: Parameter, incomplete: str) -> list[CompletionItem]:
-    # Using click CompletionItem allows spefifying type of completion ("file"),
+    # Using click CompletionItem allows specifying type of completion ("file"),
     # which means that zsh file autocomplete will not take precedence
     # Thus we use click's shell_complete instead of typer's autocomplete
     if not incomplete:

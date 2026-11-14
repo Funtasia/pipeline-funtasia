@@ -96,7 +96,7 @@ class ConvertSkp(aobject):
         then try to use skp_folder / filename / filename.skp.
         If `source` is a Path but the file does not exist, 
         find the file using method above using its filename.
-        (filename should not have file extention)
+        (filename should not have file extension)
 
         If override (default True), replace existing files and folders.
 
@@ -172,7 +172,6 @@ class ConvertSkp(aobject):
         if self.progress_bar:
             self.task_id = self.progress_bar.add_task(f"{self.filepath.name}", total=3, start=False)
 
-
     def update_progress(self, description, advance: float = 0):
         if self.progress_bar and self.task_id is not None:
             self.progress_bar.update(
@@ -182,11 +181,34 @@ class ConvertSkp(aobject):
             )
 
 
+    # 3dwhere.com conversion workflow:
+    # 
+    # 1. Generate cuid from random bytes
+    # 2. Get tkurl, upurl, surl from the cuid
+    # 3. Get token from tkurl (uses file params)
+    # 4. Get fcode after uploading the file using upurl and token (uses file params)
+    # 5. Get zip download url from surl and fcode
+    # 6. Download zip file and extract the blend file
+    # 
+    # For documentation, refer to the original js at 
+    # https://www.3dwhere.com/conv/model-to-blend
+    # https://www.3dwhere.com/loong/js/supload/js/stream-v1.js
+
+    @staticmethod
+    def f_get_random():
+        # source: https://www.3dwhere.com/loong/js/supload/js/stream-v1.js
+        # used to add a dummy get param???
+        return str(time.time_ns() // 1_000_000)[8:]
+
+    @staticmethod
+    def f_add_vars(json: dict, url):
+        parts = urlsplit(url) 
+        new_query = parse_qs(parts.query) | json
+        return str(urlunsplit(parts._replace(query=urlencode(new_query,doseq=True))))
+
     async def get_env(self) -> tuple[str, str, str]:
         """
-        Return a tuple of `tkurl`, `upurl`, `surl` 
-
-        Refer to the original js at https://www.3dwhere.com/conv/model-to-blend
+        Return a tuple of `tkurl`, `upurl`, `surl`
         """
 
         # cuid is 16-byte hex string (32 chars) that represents a fingerprint from FingerprintJS (from a hash function)
@@ -214,20 +236,11 @@ class ConvertSkp(aobject):
 
         return tkurl, upurl, surl
 
-    @staticmethod
-    def f_get_random():
-        # source: https://www.3dwhere.com/loong/js/supload/js/stream-v1.js
-        # used to add a dummy get param???
-        return str(time.time_ns() // 1_000_000)[8:]
-
-    @staticmethod
-    def f_add_vars(json: dict, url):
-        parts = urlsplit(url) 
-        new_query = parse_qs(parts.query) | json
-        return str(urlunsplit(parts._replace(query=urlencode(new_query,doseq=True))))
-
     @notNone(message="Did not get token (token is None)")
     async def get_token(self, tkurl) -> str:
+        """
+        Get token from tkurl.
+        """
 
         response = await self.client.get(
             f"{self.f_add_vars(self.file_params, tkurl)}&{self.f_get_random()}",
@@ -244,8 +257,7 @@ class ConvertSkp(aobject):
     @notNone(message="Did not get fcode (fcode is None)")
     async def get_fcode(self, upurl, token) -> str:
         """
-        Uploads .skp model file and obtains a code: 'fcode' which is subsequently used 
-        to obtain the link to download the zip file
+        Upload .skp model file and return fcode.
         """
     
         upload_params = {
@@ -262,21 +274,12 @@ class ConvertSkp(aobject):
 
         logger.debug(f"Loaded '{self.filepath}', preparing to upload")
 
-        # for some reason the original site also did a get request on the upload endpoint
+        # for some reason the original site also did a GET request on the upload endpoint
         # no idea why
-        upload_get = await self.client.get(
-            url,
-            timeout = 120
-        )
+        upload_get = await self.client.get(url, timeout=120)
+        logger.debug(f"upload_GET: {upload_get.json()}")
 
-        logger.debug(f"upload_get: {upload_get.json()}")
-
-        response = await self.client.post(
-            url,
-            timeout = 120,
-            content = data
-        )
-
+        response = await self.client.post(url, timeout=120, content=data)
         response = response.raise_for_status().json()
         fcode = response.get("message")
     
@@ -285,33 +288,24 @@ class ConvertSkp(aobject):
     @notNone(message="Request timed out without getting zipurl", Error_class=TimeoutError)
     async def get_zip_download_url(self, base_url, fcode: str) -> str:
         """
-        Using the 'fcode' returned by 'get_fcode()', it obtains the download link for
-        the zip file
+        Get download link for the zip file using fcode.
         """
         
         zipurl = None
-        
         start = time.monotonic()
     
         # server sometimes responds OK, but actually still converting
-        # thus keep trying with 2s interval until zipurl appears
-        while zipurl is None:
-
+        # thus keep trying with 3s interval until zipurl appears
+        while zipurl is None and time.monotonic() - start > 120:
             response = await self.client.get(
                 urljoin(base_url, '/jsonconv.aspx'),
-                params = {
-                    "action": "getinfo",
-                    "fcode": fcode
-                },
-                timeout = 10
+                params={"action": "getinfo","fcode": fcode},
+                timeout=10
             )
 
             response = response.raise_for_status().json()
             logger.debug(f"zipurl request: {response}")
             zipurl = response.get("zipfile")
-    
-            if time.monotonic() - start > 120:
-                break
     
             await asyncio.sleep(3)
     
@@ -319,120 +313,120 @@ class ConvertSkp(aobject):
     
     async def save_zipfile(self, zipurl: str) -> None:
         """
-        Using the download link returned by 'get_zip_download_url()', it saves both the
-        zip file and the .blend file.
+        Save the zip file and from zipurl and extract the blend file.
         """
 
-        response = await self.client.get(
-            zipurl,
-            timeout=240
-        )
-    
+        response = await self.client.get(zipurl, timeout=240)
         self.zip_save_path.write_bytes(response.raise_for_status().content)
     
         with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-    
             file = z.namelist()[0]
             data = z.read(file)
             self.blend_save_path.write_bytes(data)
+
+    async def convert_skp_to_blend(self):
+        """
+        Fully convert skp file to blend file.
+
+        Suppress errors until self.config.attempts reached.
+        """
+
+        self.update_progress(f"[bold cyan]Uploading for conversion: {self.filepath.name}[/bold cyan]")
+
+        for attempt in range(1, self.config.attempts + 1):
+            try:
+                tkurl, upurl, surl = await self.get_env()
+                token = await self.get_token(tkurl)
+                fcode = await self.get_fcode(upurl, token)
+                logger.info(f"Got token and fcode for {self.filepath.name}")
+                zipurl = await self.get_zip_download_url(surl, fcode)
+                logger.info(f"Got download link for {self.filepath.name}")
+                
+                # no errors
+                break
+
+            # usually ConnectionTimeout, but can be other errors as well
+            except Exception as e: 
+                logger.warning(f"Convert {self.filepath.name} failed: {type(e).__name__}: {e} (attempt {attempt}/{self.config.attempts})")
+
+                if attempt == self.config.attempts:
+                    raise
+
+        self.update_progress(f"[bold cyan]Downloading converted zip: {self.filepath.name}[/bold cyan]", advance=1)
+
+        await self.save_zipfile(zipurl) #type: ignore (zipurl will always be bound, last attempt will raise)
+
+    async def convert_blend_to_glb(self):
+        """
+        Fully convert blend file to glb file.
         
-    async def run_blender(self):
-        "Run blender and raise RuntimeError is failure"
+        Raise RuntimeError if conversion failed.
+        """
 
-        self.update_progress(f"[bold blue]Waiting for Blender: {self.blend_save_path.name}[/bold blue]")
+        self.update_progress(f"[bold blue]Converting with Blender: {self.blend_save_path.name}[/bold blue]", advance=1)
 
-        async with self.blender_semaphore:
+        command = [
+            str(self.config.blender_exe),
+            "--background",
+            str(self.blend_save_path),
+            "--python",
+            str(self.config.blender_script),
+        ]
 
-            self.update_progress(f"[bold blue]Converting with Blender: {self.blend_save_path.name}[/bold blue]", advance=1)
+        if self.glb_save_folder is not None:
+            command += ["--", "--glb", str(self.glb_save_folder)]
 
-            command = [
-                str(self.config.blender_exe),
-                "--background",
-                str(self.blend_save_path),
-                "--python",
-                str(self.config.blender_script),
-            ]
+        logger.info(f"Starting Blender: {self.blend_save_path}")
 
-            if self.glb_save_folder is not None:
-                command += ["--", "--glb", str(self.glb_save_folder)]
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
 
-            logger.info(f"Starting Blender: {self.blend_save_path}")
+        stdout, _ = await process.communicate()
+        output = stdout.decode(errors="replace")
 
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-            )
+        if process.returncode != 0:
+            logger.error(f"Blender failed for {self.blend_save_path} (exit code {process.returncode})")
+            logger.debug(output)
+            raise RuntimeError(f"Blender failed with exit code {process.returncode}")
 
-            stdout, _ = await process.communicate()
-            output = stdout.decode(errors="replace")
-
-            if process.returncode != 0:
-                logger.error(
-                    f"[red]Blender failed for {self.blend_save_path} (exit code {process.returncode})[/]"
-                )
-                raise RuntimeError(f"Blender failed with exit code {process.returncode}")
-
-            logger.info(f"Blender completed: {self.blend_save_path}")
-
+        logger.info(f"Blender completed: {self.blend_save_path}")
 
     async def _convert(self):
         """
         Convert the file fully from .skp to .glb.
 
-        All error handling is done in `convert`
+        No error handling and taskbar updating if failed, use `.convert()` for that instead.
         """
+
         self.update_progress(f"[bold yellow]Waiting for upload: {self.filepath.name}[/bold yellow]")
 
         async with self.skp_semaphore:
             if self.progress_bar:
                 self.progress_bar.start_task(self.task_id)
 
-            self.update_progress(f"[bold cyan]Uploading for conversion: {self.filepath.name}[/bold cyan]")
-
-            for attempt in range(self.config.attempts):
-                try:
-                    # main logic code
-                    tkurl, upurl, surl = await self.get_env()
-                    token = await self.get_token(tkurl)
-                    fcode = await self.get_fcode(upurl, token)
-                    logger.info(f"Got token and fcode for {self.filepath.name}")
-                    zipurl = await self.get_zip_download_url(surl, fcode)
-                    logger.info(f"Got download link for {self.filepath.name}")
-                    
-                    # no errors
-                    break
-
-                except Exception as e:
-                    logger.warning(f"Convert {self.filepath.name} failed: {type(e).__name__}: {e} (attempt {attempt+1}/{self.config.attempts})")
-
-                    # attempt is 0-indexed
-                    if attempt + 1 == self.config.attempts:
-                        raise
-
-            self.update_progress(f"[bold cyan]Downloading converted zip: {self.filepath.name}[/bold cyan]", advance=1)
-
-            await self.save_zipfile(zipurl) #type: ignore (zipurl will always be bound, last attempt will raise)
+            await self.convert_skp_to_blend()
 
         logger.info(f"Converted {self.filepath.name} -> {self.blend_save_path.name}")
+        self.update_progress(f"[bold blue]Waiting for Blender: {self.blend_save_path.name}[/bold blue]")
 
-        await self.run_blender()
+        async with self.blender_semaphore:
+            await self.convert_blend_to_glb()
 
-        logger.info(f"Converted {self.blend_save_path.name} {self.filepath.name} (done)")
-        
+        logger.info(f"Converted {self.blend_save_path.name} -> {self.filepath.name} (done)")
         self.update_progress(f"[bold green]✓ Done: {self.filepath.name} -> {self.glb_save_path.name}[/bold green]", advance=1)
 
 
     async def convert(self, suppress_errors=False) -> bool:
         """
-        Convert the file in `self.filepath` (.skp) -> .blend -> .glb
+        Convert the file in `self.filepath` .skp -> .blend -> .glb
 
-        Error messages will appear in `progress_bar` if set.
+        Error messages will appear in `self.progress_bar` if set.
 
-        If suppress_errors=False, raise any errors that occur,
-        else return False
-
-        If conversion is successful, return True.
+        Return whether the conversion succeeded.
+        If suppress_errors=True, return False instead of raising.
         """
         try:
             await self._convert()
@@ -460,7 +454,6 @@ async def main():
         expand=True
     )
 
-
     with Live(conversion_progress) as l:
 
         async with httpx.AsyncClient() as client:
@@ -476,7 +469,6 @@ async def main():
             )
 
             await instance.convert()
-
 
 
 if __name__ == "__main__":
