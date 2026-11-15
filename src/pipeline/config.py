@@ -27,7 +27,7 @@ class Config:
     blender_script: Path = Path("3dfiles-funtasia/misc/scripts/blender_script.py")
     skp_folder: Path = Path("3dfiles-funtasia/.skp")
     glb_folder: Path = Path("3dfiles-funtasia/.glb")
-    blend_folder: Path = Path("3dfiles-funtasua/.blend")
+    blend_folder: Path = Path("3dfiles-funtasia/.blend")
 
     attempts: int = 2
     DEBUG: int = 0
@@ -49,7 +49,7 @@ class Config:
         if not getattr(self, "blender_exe"):
             self.blender_exe = Path(get_blender_exe()).absolute()
 
-    def absoulte_validate_path(self, path: Path | str, root: Path | None) -> tuple[bool, Path]:
+    def absolute_validate_path(self, path: Path | str, root: Path | None) -> tuple[bool, Path]:
         if not isinstance(path, Path | str):
             raise TypeError(f"Expected path-like object (Path | str), got {type(path)}")
         
@@ -72,7 +72,7 @@ class Config:
             raise TypeError(f"No attribute '{name}' in {self.__class__.__name__}")
 
         if hints[name] is Path:
-            exists, value = self.absoulte_validate_path(value, root = self.root if name != "root" else None)
+            exists, value = self.absolute_validate_path(value, root = self.root if name != "root" else None)
             if not exists:
                 raise FileNotFoundError(f"Cannot find directory {value}")
         
@@ -118,7 +118,7 @@ def load_config(force_default=False) -> Config:
 def get_blender_exe(force_default=False) -> str:
     if platform.system() == "Windows":
         # version agnostic
-        matches = list(Path().glob("C:/Program Files/Blender Foundation/Blender*/blender.exe"))
+        matches = list(Path("C:/Program Files").glob("Blender Foundation/Blender*/blender.exe"))
         if not matches:
             if force_default:
                 return "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe"

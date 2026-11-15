@@ -19,7 +19,7 @@ app = typer.Typer(name="setup", no_args_is_help=True)
 @app.callback()
 def callback():
     """
-    Utility to setup the environement for Funtasia developement. 
+    Utility to setup the environment for Funtasia development. 
     Run `nipple setup all` to setup everything. 
     This should typically already been run by the setup script.
     """
@@ -115,7 +115,7 @@ def clone(
         if exit_code:
             print("[red]Aborting...")
             if not ssh:
-                print("[yellow]hint: [/][bright_black]If facing authentication issues with https, try using ssh authenticaation with 'nipple setup --ssh' instead[/]")
+                print("[yellow]hint: [/][bright_black]If facing authentication issues with https, try using ssh authentication with 'nipple setup --ssh' instead[/]")
             sys.exit(exit_code)
 
 
