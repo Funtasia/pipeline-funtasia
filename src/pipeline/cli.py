@@ -1,5 +1,10 @@
 import asyncio
+import ctypes
 import logging
+import os
+import shlex
+import sys
+import time
 from functools import wraps
 from pathlib import Path
 from typing import Optional
@@ -10,7 +15,7 @@ import typer
 from click import Parameter
 from click import Context
 from click.shell_completion import CompletionItem
-from rich import print
+from rich import print as rich_print
 from rich.console import Group
 from rich.live import Live
 from rich.logging import RichHandler
@@ -228,5 +233,21 @@ def callback(verbose: Annotated[int, typer.Option('-v', '--verbose', count=True)
     logging.info(f"Verbosity level set to {min(3, verbose)} (python log level {verbosity})")
         
 
+def launched_by_double_click() -> bool:
+    if os.name == "nt":
+        buf = (ctypes.c_uint * 2)()
+        count = ctypes.windll.kernel32.GetConsoleProcessList(buf, 2)
+        return count <= 2  # launched from GUI will have 2, from terminal will have 3
+
+    # On *NIX, GUI will not make tty to run.
+    return not sys.stdin.isatty()
+
+def main():
+    if launched_by_double_click():
+        from .repl import repl
+        repl(app)
+    else:
+        app()
+
 if __name__ == '__main__':
-    app()
+    main()

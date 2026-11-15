@@ -30,6 +30,11 @@ nipple = "pipeline.cli:app"
 fuNtasIaPiPeLinE = "pipeline.cli:app"
 pipeline = "pipeline.cli:app"
 
+[project.optional-dependencies]
+repl = [
+  "prompt_toolkit >= 3.0"
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

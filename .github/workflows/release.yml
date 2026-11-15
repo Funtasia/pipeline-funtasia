@@ -8,9 +8,23 @@ on:
 permissions:
   contents: write
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux
+          - os: macos-latest
+            name: macos
+          - os: windows-latest
+            name: windows
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -20,22 +34,45 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Install build dependencies and stage package
-        run: |
-          rm -rf build/app
-          pip install --target build/app .
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
 
-      - name: Build zipapp
-        run: |
-          python -m zipapp build/app -o nipple.pyz -p "/usr/bin/env python3" -m "pipeline.cli:app" -c
+      - name: Stage app and dependencies
+        run: pip install --target build/app '.[repl]'
+
+      - name: Build zipapp (with shebang, non-windows)
+        if: matrix.name != 'windows'
+        run: python -m zipapp build/app -o "nipple-${{ matrix.name }}.pyz" -p "/usr/bin/env python3" -m "pipeline.cli:main" -c
+
+      - name: Build zipapp (no shebang, windows)
+        if: matrix.name == 'windows'
+        run: python -m zipapp build/app -o "nipple-${{ matrix.name }}.pyz" -m "pipeline.cli:main" -c
 
       - name: Smoke test
-        run: python nipple.pyz --help
+        run: python "nipple-${{ matrix.name }}.pyz" --help
 
-      - name: Create release and upload asset
+      - name: Upload zipapp artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nipple-${{ matrix.name }}
+          path: nipple-${{ matrix.name }}.pyz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all zipapps
+        uses: actions/download-artifact@v4
+        with:
+          pattern: nipple-*
+          merge-multiple: true
+
+      - name: Create release and upload assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
             gh release create "$GITHUB_REF_NAME" --generate-notes --title "$GITHUB_REF_NAME"
-          gh release upload "$GITHUB_REF_NAME" nipple.pyz --clobber
+          gh release upload "$GITHUB_REF_NAME" nipple-linux.pyz nipple-macos.pyz nipple-windows.pyz --clobber
+
