@@ -1,2 +1,2 @@
 name = "funtasia-pipeline"
-version = "0.0.4"
+version = "0.0.4.post2"

@@ -39,13 +39,10 @@ build-backend = "hatchling.build"
 path = "src/pipeline/__about__.py"
 
 [tool.hatch.build.targets.sdist]
-exclude = [
-  "/.agent",
-  "/.blender",
-  "/.github",
-  "/.notes",
-  "setup",
-  "/docs",
+only-include = [
+  "src/pipeline",
+  "pyproject.toml",
+  "README.md"
 ]
 
 [tool.hatch.build.targets.wheel]

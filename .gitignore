@@ -1,6 +1,9 @@
 **/__pycache__/
 venv-pipeline/
 
+.vscode/
+.venv/
+
 # For Conversion Pipeline testing
 .skp/
 .blend/
@@ -12,3 +15,5 @@ dist/
 app-funtasia/
 pipeline-funtasia/
 3dfiles-funtasia/
+
+build/app/
