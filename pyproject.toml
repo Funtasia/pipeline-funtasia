@@ -1,15 +1,14 @@
 [project]
 name = "funtasia-pipeline"
 dynamic = ["version"]
-requires-python = ">= 3.11"
+requires-python = ">= 3.13"
 description = "Tool to generate assets for Funtasia 3D map"
 readme = "README.md"
 
 dependencies = [
-  "typer>=0.27",
-  "colorama>=0.4.6; os_name == 'nt'",
-  "httpx>=0.28",
-  "quart>=0.23"
+  "httpx==0.28",
+  "typer==0.28",
+  "colorama==0.4.6; os_name == 'nt'",
 ]
 
 classifiers = [
@@ -22,18 +21,15 @@ classifiers = [
   # Specify the Python versions you support here.
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.13",
-  "Programming Language :: Python :: 3.14"
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15"
 ]
 
 [project.scripts]
 nipple = "pipeline.cli:app"
-fuNtasIaPiPeLinE = "pipeline.cli:app"
-pipeline = "pipeline.cli:app"
 
-[project.optional-dependencies]
-repl = [
-  "prompt_toolkit >= 3.0"
-]
+[project.urls]
+Repository = "https://github.com/Funtasia/pipeline-funtasia"
 
 [build-system]
 requires = ["hatchling"]
