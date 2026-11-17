@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 import subprocess
@@ -54,7 +55,7 @@ def clone_repo(url: str):
             "--recursive",
             url,
         ],
-        env={"GIT_TERMINAL_PROMPT":"0"},
+        env=os.environ|{"GIT_TERMINAL_PROMPT":"0"}, # inherit %SystemRoot% on windows
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True,
