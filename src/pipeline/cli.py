@@ -1,26 +1,13 @@
 import asyncio
-import ctypes
 import logging
-import os
-import shlex
-import sys
-import time
 from functools import wraps
 from pathlib import Path
-from typing import Optional
-from typing import Annotated
+from typing import Annotated, Optional
 
-import httpx
 import typer
-from click import Parameter
-from click import Context
-from click.shell_completion import CompletionItem
-from rich import print as rich_print
-from rich.console import Group
-from rich.live import Live
-from rich.logging import RichHandler
-from rich.panel import Panel
-from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
+from typer._click.shell_completion import CompletionItem
+from typer._click import Parameter
+from typer._click import Context
 
 from .setup import app as setup_app
 
@@ -137,6 +124,12 @@ async def model_convert(
     Read the config file and cli arguments. In case of conflicts, cli arguments take precedence.
     """
 
+    import httpx
+    from rich.console import Group
+    from rich.live import Live
+    from rich.panel import Panel
+    from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
+
     from .model_server.model_convert import ConvertSkp
 
     # Create progress bar for tracking all conversions
@@ -221,6 +214,8 @@ def callback(verbose: Annotated[int, typer.Option('-v', '--verbose', count=True)
     CLI tool to process data relating to Funtasia.
     """
 
+    from rich.logging import RichHandler
+
     verbosity = max(0, 30 - (10 * verbose))
 
     logging.basicConfig(
@@ -234,6 +229,9 @@ def callback(verbose: Annotated[int, typer.Option('-v', '--verbose', count=True)
         
 
 def launched_by_double_click() -> bool:
+    import os
+    import sys
+    
     if os.name == "nt":
         buf = (ctypes.c_uint * 2)()
         count = ctypes.windll.kernel32.GetConsoleProcessList(buf, 2)
