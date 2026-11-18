@@ -75,15 +75,22 @@ def find_skp(ctx: Context, param: Parameter, incomplete: str) -> list[Completion
     # Using click CompletionItem allows specifying type of completion ("file"),
     # which means that zsh file autocomplete will not take precedence
     # Thus we use click's shell_complete instead of typer's autocomplete
-    if not incomplete:
-        glob = "**/*.skp"
+
+    # files with names that match `incomplete`
+    matches = set(Path().rglob(f"*{incomplete}*.skp"))
+
+    # files with filepath starting with `incomplete`
+    if incomplete and Path(incomplete).exists():
+        matches.update(Path(incomplete).rglob("*.skp"))
     else:
-        glob = f"**/*{incomplete.strip('*')}*.skp"
+        matches.update(Path(f"{incomplete}*").rglob("*.skp"))
+
     # click does not support generator objects
     return [
-        CompletionItem(str(file), "file") 
-        for file in Path().glob(glob, case_sensitive=True) 
-        if file.is_file() and str(file) not in ctx.params.get('files', ())
+        CompletionItem(str(file), "file")
+        for file in matches
+        if file.is_file() 
+        and str(file) not in (ctx.params.get('files') or [])
     ]
 
 
