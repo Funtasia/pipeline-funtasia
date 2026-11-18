@@ -15,6 +15,7 @@ from rich.text import Text
 
 from .config import write_config
 
+
 app = typer.Typer(name="setup", no_args_is_help=True)
 
 @app.callback()
@@ -24,6 +25,7 @@ def callback():
     Run `nipple setup all` to setup everything. 
     This should typically already been run by the setup script.
     """
+
 
 def get_target_dir(url):
     _, _, path, _, _ = urlsplit(url)
@@ -46,37 +48,37 @@ def format_line(line: str) -> Text:
     return text
 
 
-def clone_repo(url: str):
-    proc = subprocess.Popen(
-        [
-            "git",
-            "clone",
-            "--progress",
-            "--recursive",
-            url,
-        ],
-        env=os.environ|{"GIT_TERMINAL_PROMPT":"0"}, # inherit %SystemRoot% on windows
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,
-    )
-
+def clone_single_repo(repo_url: str):
+    subproc_args = ["git", "clone", "--progress", "--recursive", repo_url]
+    subproc_params = {
+        'env': os.environ|{"GIT_TERMINAL_PROMPT":"0"}, #fix git on windows with 
+        'stdout': subprocess.DEVNULL,
+        'stderr': subprocess.PIPE,
+        'text': True,
+        'bufsize': 1,
+    }
     prev_line = ""
 
-    with Live() as live:
+    with (
+        # Popen instead of run to get live cloning progress update
+        subprocess.Popen(subproc_args, **subproc_params) as proc, 
+        Live() as live
+        ):
+
         for line in proc.stderr: # type: ignore
+            # non-live progress status lines end with 'done.', so
+            # we have the line appear in the live widget first
+            # before printing to console above the live display
             if prev_line.endswith('.'):
                 live.console.print(format_line(prev_line))
             
             line = line.strip()
-
             live.update(format_line(line))
             prev_line = line
 
     returncode = proc.wait()
-
     return returncode
+
 
 @app.command()
 def clone(
@@ -103,7 +105,6 @@ def clone(
         ]
 
     for repo in repo_urls:
-
         path = Path(get_target_dir(repo))
         if path.exists():
             if force:
@@ -111,14 +112,14 @@ def clone(
             else:
                 print(f"[red]Directory '{path.name}' exists, aborting...")
 
-        exit_code = clone_repo(repo)
-        
-        if exit_code:
+        exit_code = clone_single_repo(repo)
+        if exit_code != 0:
             print("[red]Aborting...")
-            if not ssh:
+            if ssh:
+                print("[yellow]hint: [/][bright_black]If facing authentication issues with ssh, try using https authentication with 'nipple setup --https' instead[/]")
+            else:
                 print("[yellow]hint: [/][bright_black]If facing authentication issues with https, try using ssh authentication with 'nipple setup --ssh' instead[/]")
             sys.exit(exit_code)
-
 
 
 @app.command(name="get-readme")
@@ -133,6 +134,7 @@ def copy_readme(
 
     copy(readme, destination)
 
+
 @app.command()
 def init_config(
     force: Annotated[bool, typer.Option("--force/", "-f/", help="Override conflicting files.")] = False,
@@ -146,6 +148,7 @@ def init_config(
         - `blender_exe`: Auto-detect blender executable based on OS.
     """
     write_config(overwrite=force)
+
 
 @app.command("all")
 def setup_all(
