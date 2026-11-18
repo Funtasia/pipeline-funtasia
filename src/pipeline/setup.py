@@ -1,10 +1,8 @@
 import os
 import shutil
 import subprocess
-import subprocess
 import sys
 from pathlib import Path
-from shutil import copy
 from typing import Annotated
 from urllib.parse import urlsplit
 
@@ -19,12 +17,24 @@ from .config import write_config
 app = typer.Typer(name="setup", no_args_is_help=True)
 
 @app.callback()
-def callback():
+def callback(
+    ctx: typer.Context,
+    no_check_dir: Annotated[bool, typer.Option(
+        "--no-check-dir", 
+        help="Skip confirmation prompt of project root.")
+    ]=False
+):
     """
-    Utility to setup the environment for Funtasia development. 
-    Run `nipple setup all` to setup everything. 
-    This should typically already been run by the setup script.
+    Utility to setup the environment for Funtasia development.
+    Run `nipple setup all` to setup everything.
+    
+    RUN SETUP ONLY AT THE PROJECT ROOT.
     """
+
+    if no_check_dir or '--help' in sys.argv: # assume --help always requests help
+        return
+    
+    typer.confirm(f"Confirm that '{Path().absolute()}' is the project root?", abort=True)
 
 
 def get_target_dir(url):
@@ -82,15 +92,17 @@ def clone_single_repo(repo_url: str):
 
 @app.command()
 def clone(
-    force: Annotated[bool, typer.Option("--force/", "-f/", help="Override conflicting files.")] = False,
-    ssh: Annotated[bool, typer.Option("--ssh/--https", help="Whether to use ssh or https to clone the repositories.")] = False
+    force: Annotated[bool, typer.Option(
+        "--force/", "-f/", 
+        help="Replace conflicting directories.")
+    ] = False,
+    ssh: Annotated[bool, typer.Option(
+        "--ssh/--https", 
+        help="Use ssh or https to clone the repositories.")
+    ] = False
 ):
     """
-    Clone the Funtasia repos onto the machine.
-
-    If force is True, remove the contents of any conflicting directories
-
-    If ssh is True, use the ssh links instead of https
+    Clone the Funtasia repos into the current directory.
     """
 
     if ssh:
@@ -110,40 +122,52 @@ def clone(
             if force:
                 shutil.rmtree(path, ignore_errors=True)
             else:
-                print(f"[red]Directory '{path.name}' exists, aborting...")
+                print(f"[red]fatal:[/red] '{path.absolute()}' already exists and is not an empty directory.")
+                print("[red]Aborted.[/red]")
+                return
 
+    for repo in repo_urls:
         exit_code = clone_single_repo(repo)
         if exit_code != 0:
-            print("[red]Aborting...")
             if ssh:
                 print("[yellow]hint: [/][bright_black]If facing authentication issues with ssh, try using https authentication with 'nipple setup --https' instead[/]")
             else:
                 print("[yellow]hint: [/][bright_black]If facing authentication issues with https, try using ssh authentication with 'nipple setup --ssh' instead[/]")
-            sys.exit(exit_code)
+            print("[red]Aborted.[/red]")
+            return
 
 
 @app.command(name="get-readme")
 def copy_readme(
-    force: Annotated[bool, typer.Option("--force/", "-f/", help="Override conflicting files.")] = False,
+    force: Annotated[bool, typer.Option(
+        "--force/", "-f/", 
+        help="Override conflicting files.")
+    ] = False,
 ):
+    """
+    Write the default README.md to the current directory.
+    """
     readme = Path(__file__).parent / "README.md"
     destination = Path() / "README.md"
 
     if not force and destination.exists():
-        raise FileExistsError
+        print("[red]fatal:[/red] README.md already exists.")
+        return
 
-    copy(readme, destination)
+    shutil.copy(readme, destination)
 
 
 @app.command()
 def init_config(
-    force: Annotated[bool, typer.Option("--force/", "-f/", help="Override conflicting files.")] = False,
+    force: Annotated[bool, typer.Option(
+        "--force/", "-f/", 
+        help="Override conflicting files.")
+    ] = False,
 ):
     """
-    Write the default config file to $PWD, and get default values for certain values.
+    Write the default config file to the current directory, and get default values for certain values.
 
     Will dynamically set values for:
-    
         - `root`: $PWD
         - `blender_exe`: Auto-detect blender executable based on OS.
     """
@@ -152,9 +176,18 @@ def init_config(
 
 @app.command("all")
 def setup_all(
-    force: Annotated[bool, typer.Option("--force/", "-f/", help="Override conflicting files.")] = False,
-    ssh: Annotated[bool, typer.Option("--ssh/--https", help="Whether to use ssh or https to clone the repositories.")] = False
+    force: Annotated[bool, typer.Option(
+        "--force/", "-f/", 
+        help="Override conflicting files."
+    )] = False,
+    ssh: Annotated[bool, typer.Option(
+        "--ssh/--https", 
+        help="Whether to use ssh or https to clone the repositories.")
+    ] = False
 ):
+    """
+    Run all of the above.
+    """
     clone(force, ssh)
     copy_readme(force)
     write_config(force)
