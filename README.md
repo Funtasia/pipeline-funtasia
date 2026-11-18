@@ -14,15 +14,10 @@ The zip file is then unzipped and stored. The main pipeline will then call on a 
 * Blender
 * Sketchup: For development of models
 
-## For *NIX:
-```
-curl -fsSL https://github.com/Funtasia/pipeline-funtasia/raw/refs/heads/main/setup/setup.sh | sh
-```
+## For all platforms:
+Install pipx, then run
+`pipx install https://github.com/Funtasia/pipeline-funtasia`
 
-## For Windows:
-```
-irm https://github.com/Funtasia/pipeline-funtasia/raw/refs/heads/main/setup/setup.ps1 | iex
-```
 
 ## Manual Install:
 1. Create a Python virtual environment (`python -m venv .venv`) in the Funtasia root folder
