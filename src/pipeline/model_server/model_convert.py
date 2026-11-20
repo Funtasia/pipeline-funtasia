@@ -5,13 +5,10 @@ import logging
 import random
 import time
 import zipfile
-from collections.abc import AsyncIterable
-from enum import Enum
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlsplit, urlunsplit
+from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
-from httpx._transports import base
 from rich.console import Console
 from rich.live import Live
 from rich.logging import RichHandler
@@ -25,10 +22,6 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(10 + logging.getLogger().level)
 
 logger = logging.getLogger(__name__)
-
-class Method(Enum):
-    GET = "get"
-    POST = "post"
     
 class aobject(object):
     """
