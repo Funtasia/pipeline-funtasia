@@ -38,60 +38,76 @@ def coro(f):
 
     return wrapper
 
-app = typer.Typer(no_args_is_help=True, rich_markup_mode="markdown")
+app = typer.Typer(
+    no_args_is_help=True, 
+    rich_markup_mode="markdown",
+    context_settings={"help_option_names": ['-h', '--help']}
+)
 
 app.add_typer(setup_app)
 
 
-@app.command("parse-data")
+def find(ext: str):
+    """
+    Return a shell completion function that 
+    finds a file with the extension `ext`.
+    `ext` includes the leading period ('.')
+    """
+    def find_file(
+        ctx: Context, 
+        param: Parameter, 
+        incomplete: str
+    ) -> list[CompletionItem]:
+        # Using click CompletionItem allows specifying type of 
+        # completion ("file"), which means that zsh file 
+        # autocomplete will not take precedence. Thus we use 
+        # click's shell_complete instead of typer's autocomplete
+
+        # TODO: Switch to typer once they implement click 
+        # feature of typed completion
+
+        # files with names that match `incomplete`
+        matches = set(Path().rglob(f"*{incomplete}*{ext}"))
+
+        # files with filepath starting with `incomplete`
+        for match in Path().glob(f"{incomplete}*"):
+            if match.is_file() and match.suffix == ext:
+                matches.update((match,))
+            elif match.is_dir():
+                matches.update(match.rglob(f"*{ext}"))
+
+        # click does not support generator objects
+        return [
+            CompletionItem(str(file), "file")
+            for file in sorted(matches, key=lambda p: len(str(p)))
+            if file.is_file() 
+            and str(file) not in (ctx.params.get('files') or [])
+        ]
+
+    return find_file
+
+
+@app.command("parse-data", no_args_is_help=True)
 def parse_data(
-    filename_in: Annotated[
-        Path, 
-        typer.Argument(exists=True)
-    ],
-    filename_out: Annotated[
-        Path, 
-        typer.Argument(writable=True)
-    ] = Path("funtasia_data.json"),
-    prefer_ascii: Annotated[
-        bool, 
-        typer.Option(help="Convert common non-ASCII characters into their ASCII equivalent")
-    ] = True
+    filename_in: Annotated[Path, typer.Argument(
+        help="Filename of the csv dataset",
+        exists=True,
+        shell_complete=find('.csv')
+    )],
+    filename_out: Annotated[Path, typer.Argument(
+        writable=True
+    )] = Path("funtasia_data.json"),
+    prefer_ascii: Annotated[bool, typer.Option(
+        help="Convert common non-ASCII characters (dashes and quotation marks) into their ASCII equivalent"
+    )] = True
 ):
     """
     Parse csv booth data in `filename_in` and
     output json data to `filename_out`.
-
-    `prefer_ascii` will convert dashes to 
-    the ASCII dash '-', and quotation marks 
-    to their ASCII equivalent (' and ").
     """
     from .csv_parse import csv_data_to_json
     
     csv_data_to_json(filename_in, filename_out, prefer_ascii)
-
-
-def find_skp(ctx: Context, param: Parameter, incomplete: str) -> list[CompletionItem]:
-    # Using click CompletionItem allows specifying type of completion ("file"),
-    # which means that zsh file autocomplete will not take precedence
-    # Thus we use click's shell_complete instead of typer's autocomplete
-
-    # files with names that match `incomplete`
-    matches = set(Path().rglob(f"*{incomplete}*.skp"))
-
-    # files with filepath starting with `incomplete`
-    if incomplete and Path(incomplete).exists():
-        matches.update(Path(incomplete).rglob("*.skp"))
-    else:
-        matches.update(Path(f"{incomplete}*").rglob("*.skp"))
-
-    # click does not support generator objects
-    return [
-        CompletionItem(str(file), "file")
-        for file in matches
-        if file.is_file() 
-        and str(file) not in (ctx.params.get('files') or [])
-    ]
 
 
 @app.command(no_args_is_help=True)
@@ -100,7 +116,7 @@ async def model_convert(
     files: Annotated[list[Path], typer.Argument( 
         help=".skp file(s) to convert (shell completion supported)",
         exists=True, readable=True,
-        shell_complete=find_skp #type: ignore
+        shell_complete=find('.skp')
     )],
     output_folder: Annotated[Optional[Path], typer.Option(
         "--output", '-o',
@@ -211,8 +227,15 @@ async def model_convert(
             overall_task_id,
             description=f"[bold][green]All conversions complete![/green] [red]({no_errors} errors)[/red]"
         )
-    
-    return
+
+
+@app.command(name="repl", hidden=True)
+def app_repl():
+    """
+    Hidden command to activate the repl
+    """
+    from .repl import repl
+    repl(app)
 
 
 @app.callback()
@@ -232,10 +255,11 @@ def callback(verbose: Annotated[int, typer.Option('-v', '--verbose', count=True)
         handlers=[RichHandler()]
     )
 
-    logging.info(f"Verbosity level set to {min(3, verbose)} (python log level {verbosity})")
+    logging.getLogger(__name__).info(f"Verbosity level set to {min(3, verbose)} (python log level {verbosity})")
         
 
 def launched_by_double_click() -> bool:
+    import ctypes
     import os
     import sys
     
