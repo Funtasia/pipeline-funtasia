@@ -292,10 +292,14 @@ class ConvertSkp(aobject):
 
         logger.debug(f"Loaded '{self.filepath}', preparing to upload")
 
-        # for some reason original site also did a GET request on the upload endpoint
-        # no idea why
-        upload_get = await self.client.get(url, timeout=120)
-        logger.debug(f"upload_GET: {upload_get.json()}")
+        request_check = await self.client.get(url, timeout=120)
+        request_check: dict = request_check.raise_for_status().json()
+        if not request_check.get("success", False):
+            raise NotImplementedError(
+                f"Server rejected conversion request "
+                f"with message '{request_check.get('message', '')}'"
+            )
+        logger.debug(f"upload check: {request_check}")
 
         response = await self.client.post(url, timeout=120, content=data)
         response = response.raise_for_status().json()
