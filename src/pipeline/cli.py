@@ -167,6 +167,12 @@ async def model_convert(
             help="Path to script to execute blender",
         ),
     ] = None,
+    upload_attempts: Annotated[
+        int | None,
+        typer.Option(
+            help="No of times to try uploading file to convert.",
+        ),
+    ] = None,
     force: Annotated[
         bool,
         typer.Option(
@@ -216,27 +222,33 @@ async def model_convert(
     # Add overall task
     overall_task_id = overall_progress.add_task("", total=len(files))
 
-    # Add parameters not in __init__
+    # Get config
+    config: dict[str, str] = {}
     if blender_path:
-        ConvertSkp.config.blender_exe = blender_path
+        config["blender_exe"] = blender_path
     if blender_script:
-        ConvertSkp.config.blender_script = blender_script
-
-    tasks = []
+        config["blender_script"] = blender_script
+    if blender_folder:
+        config["blend_save_folder"] = str(blender_folder.absolute())
+    if output_folder:
+        config["glb_save_folder"] = str(output_folder.absolute())
+    if upload_attempts:
+        config["upload_attempts"] = str(upload_attempts)
+    
+    async_tasks: list[asyncio.Task] = []
 
     # Use Live context manager to display all progress bars
-    with Live(progress_group, refresh_per_second=12.5) as live:
+    with Live(progress_group, refresh_per_second=12.5):
         async with httpx.AsyncClient() as client, asyncio.TaskGroup() as tg:
             for skp_file in files:
                 # Create ConvertSkp instance and pass progress bar + task ID
+                # pyrefly: ignore[not-async]
                 converter = await ConvertSkp(
                     source=skp_file,
                     client=client,
-                    glb_save_folder=output_folder,
-                    blend_save_folder=blender_folder,
+                    config=config,
                     override=force,
                     progress_bar=conversion_progress,
-                    console=live.console,
                 )
 
                 # Create task that updates overall progress when done
@@ -247,9 +259,9 @@ async def model_convert(
 
                     return success
 
-                tasks.append(tg.create_task(run_and_update(converter)))
+                async_tasks.append(tg.create_task(run_and_update(converter)))
 
-        no_errors = sum(1 if task.result() is False else 0 for task in tasks)
+        no_errors = sum(not task.result() for task in async_tasks)
 
         # Final message
         overall_progress.update(

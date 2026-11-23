@@ -9,12 +9,11 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
-from rich.console import Console
 from rich.live import Live
 from rich.logging import RichHandler
 from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
-from ..config import Config, load_config
+from ..config import load_config
 
 # httpcore and httpx will spam a lot to the terminal otherwise
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -61,6 +60,21 @@ def notNone(
     return wrapper
 
 
+def get_filepath_from_name(stem: str, suffix: str, directory: Path):
+    if (filepath := directory / stem / (stem + suffix)).is_file() or (
+        filepath := directory / (stem + suffix)
+    ).is_file():
+        return filepath
+    else:
+        try:
+            return next(directory.rglob(stem + suffix))
+
+        except StopIteration:
+            raise FileNotFoundError(
+                f"Cannot find file {stem + suffix} in {directory}."
+            ) from None
+
+
 class ConvertSkp(aobject):
     """
     Class to convert .skp -> .blend -> .glb.
@@ -68,99 +82,107 @@ class ConvertSkp(aobject):
     Example code:
 
     >>> async with httpx.AsyncClient as client:
-    >>>     # since __new__ and __init__ are async, it is important
-    >>>     # to call `await` on instance creation
+    >>> # since __new__ and __init__ are async, it is important
+    >>> # to call `await` on instance creation
     >>>     conv = await ConvertSkp("model.skp", client=client)
     >>>     await conv.convert()
-    """
 
-    config: Config
+    __init__ params:
+
+    `config` is a dictionary of configuration values found in
+    nipple_config.ini under the model_convert section.
+
+    If `source` is a Path, use that as the file to convert.
+    If `source` is a str, it is treated as the filename,
+    then try the following locations in order:
+    - skp_folder / filename / filename.skp
+    - skp_folder / filename.skp
+    - skp_folder / ** / filename.skp (get any match)
+
+    If override (default True), replace existing files and folders.
+
+    `client` is an OPEN httpx.AsyncClient instance.
+
+    For reporting progress, use `progress_bar` and update the task for each step.
+    Multiple ConvertSkp can use the same progress bar
+    as a new task is added for each instance.
+    """
 
     skp_semaphore = asyncio.Semaphore(3)
     blender_semaphore = asyncio.Semaphore(1)
+
+    client: httpx.AsyncClient
+
+    filepath: Path
+    filename: str
+    file_params: dict[str, str | int]
+
+    blend_save_path: Path
+    zip_save_path: Path
+    glb_save_path: Path
+    override: bool
+
+    progress_bar: Progress | None
 
     async def __init__(
         self,
         source: Path | str,
         client: httpx.AsyncClient,
-        glb_save_folder: Path | None = None,
-        blend_save_folder: Path | None = None,
+        config: dict[str, str] | None = None,
         override: bool = True,
         progress_bar: Progress | None = None,
-        console: Console | None = None,
     ):
-        """
-        If `source` is not a Path, it is treated as the filename,
-        then try to use skp_folder / filename / filename.skp.
-        If `source` is a Path but the file does not exist,
-        find the file using method above using its filename.
-        (filename should not have file extension)
 
-        If override (default True), replace existing files and folders.
+        self.config: dict[str, str] = dict(
+            load_config(force_default=True)["model_convert"]
+        )
+        self.config |= config or {}
 
-        `client` needs to be an OPEN httpx.AsyncClient instance.
+        logger.debug(f"Got config: {self.config}")
 
-        For reporting progress, use `progress_bar` and update the task for each step.
-        Multiple ConvertSkp can use the same progress bar
-        as a new task is added for each instance.
-
-        All other output will go to `console`, which defaults to Console().
-        """
-
-        # load config only on instance creation
-        self.config = load_config()
-
-        filename = source.stem if isinstance(source, Path) else source
-
-        # Defines the path to the .skp file
-        if isinstance(source, Path) and source.is_file():
+        # Get self.filepath and self.filename
+        if isinstance(source, Path):
+            self.filename = source.stem
             self.filepath = source
-
         else:
-            self.filepath = self.config.skp_folder / filename / f"{filename}.skp"
+            self.filename = source.removesuffix(".skp")
+            self.filepath = get_filepath_from_name(
+                self.filename, ".skp", Path(self.config["skp_folder"])
+            )
 
-            if not self.filepath.is_file():
-                raise FileNotFoundError(
-                    f"Provided filepath - {source} is not a valid filepath"
-                )
+        if not self.filepath.is_file():
+            raise FileNotFoundError(f"Provided filepath '{source}' does not exist")
 
-        # Defines the directory & path as to the saving of the .blend file
-        if blend_save_folder is not None:
-            blend_save_folder = blend_save_folder / filename
-        else:
-            blend_save_folder = self.config.blend_folder / filename
-
+        # Get self.blend_save_path
+        blend_save_folder = Path(self.config["blend_folder"]) / self.filename
         blend_save_folder.mkdir(parents=True, exist_ok=True)
+        self.blend_save_path = blend_save_folder / f"{self.filename}.blend"
 
-        self.blend_save_path = blend_save_folder / f"{filename}.blend"
-
-        # Defines the path to save the .glb
-        self.glb_save_folder = glb_save_folder or self.config.glb_folder
-
-        self.glb_save_folder.mkdir(parents=True, exist_ok=True)
-
-        self.glb_save_path = self.glb_save_folder / f"{filename}.glb"
-
+        # Get self.zip_save_path
         self.zip_save_path = self.blend_save_path.with_suffix(".zip")
 
-        if not override and (
-            self.zip_save_path.is_file() or self.blend_save_path.is_file()
-        ):
-            raise FileExistsError("Zip/Blender file exists for model already")
+        # Get self.glb_save_path
+        glb_save_folder = Path(self.config["glb_folder"])
+        glb_save_folder.mkdir(parents=True, exist_ok=True)
+        self.glb_save_path = glb_save_folder / f"{self.filename}.glb"
+
+        # Check presence of files
+        if not override:
+            for file in (self.blend_save_path, self.zip_save_path, self.glb_save_path):
+                if file.exists():
+                    raise FileExistsError(f"{file} already exists")
 
         self.file_params = {
-            "name": self.filepath.name,
+            "name": self.filename,
             "size": self.filepath.stat().st_size,
         }
 
         self.client = client
 
-        # Output related
-        self.console = console or Console()
         self.progress_bar = progress_bar
         if self.progress_bar:
             self.task_id = self.progress_bar.add_task(
-                f"{self.filepath.name}", total=3, start=False
+                f"{self.filename}", total=3, start=False
             )
 
     def update_progress(self, description, advance: float = 0):
@@ -326,21 +348,19 @@ class ConvertSkp(aobject):
         """
         Fully convert skp file to blend file.
 
-        Suppress errors until self.config.attempts reached.
+        Suppress errors until self.config["upload_attempts"] reached.
         """
 
-        self.update_progress(
-            f"[bold cyan]Uploading for conversion: {self.filepath.name}[/]"
-        )
+        self.update_progress(f"[bold cyan]Uploading for conversion: {self.filename}[/]")
 
-        for attempt in range(1, self.config.attempts + 1):
+        for attempt in range(1, int(self.config["upload_attempts"]) + 1):
             try:
                 tkurl, upurl, surl = await self.get_env()
                 token = await self.get_token(tkurl)
                 fcode = await self.get_fcode(upurl, token)
-                logger.info(f"Got token and fcode for {self.filepath.name}")
+                logger.info(f"Got token and fcode for {self.filename}")
                 zipurl = await self.get_zip_download_url(surl, fcode)
-                logger.info(f"Got download link for {self.filepath.name}")
+                logger.info(f"Got download link for {self.filename}")
 
                 # no errors
                 break
@@ -348,16 +368,16 @@ class ConvertSkp(aobject):
             # usually ConnectionTimeout, but can be other errors as well
             except Exception as e:
                 logger.warning(
-                    f"Convert {self.filepath.name} failed: "
+                    f"Convert {self.filename} failed: "
                     f"{type(e).__name__}: {e} "
-                    f"(attempt {attempt}/{self.config.attempts})"
+                    f"(attempt {attempt}/{self.config['upload_attempts']})"
                 )
 
-                if attempt == self.config.attempts:
+                if attempt == int(self.config["upload_attempts"]):
                     raise
 
         self.update_progress(
-            f"[bold cyan]Downloading converted zip: {self.filepath.name}[/]",
+            f"[bold cyan]Downloading converted zip: {self.filename}[/]",
             advance=1,
         )
 
@@ -377,15 +397,14 @@ class ConvertSkp(aobject):
         )
 
         command = [
-            str(self.config.blender_exe),
+            str(self.config["blender_exe"]),
             "--background",
             str(self.blend_save_path),
             "--python",
-            str(self.config.blender_script),
+            str(self.config["blender_script"]),
         ]
 
-        if self.glb_save_folder is not None:
-            command += ["--", "--glb", str(self.glb_save_folder)]
+        command += ["--", "--glb", str(self.glb_save_path.parent)]
 
         logger.info(f"Starting Blender: {self.blend_save_path}")
 
@@ -415,9 +434,7 @@ class ConvertSkp(aobject):
         Use `.convert()` for error handling and taskbar updating when failed.
         """
 
-        self.update_progress(
-            f"[bold yellow]Waiting for upload: {self.filepath.name}[/]"
-        )
+        self.update_progress(f"[bold yellow]Waiting for upload: {self.filename}[/]")
 
         async with self.skp_semaphore:
             if self.progress_bar:
@@ -425,7 +442,7 @@ class ConvertSkp(aobject):
 
             await self.convert_skp_to_blend()
 
-        logger.info(f"Converted {self.filepath.name} -> {self.blend_save_path.name}")
+        logger.info(f"Converted {self.filename} -> {self.blend_save_path.name}")
         self.update_progress(
             f"[bold blue]Waiting for Blender: {self.blend_save_path.name}[/]"
         )
@@ -433,11 +450,9 @@ class ConvertSkp(aobject):
         async with self.blender_semaphore:
             await self.convert_blend_to_glb()
 
-        logger.info(
-            f"Converted {self.blend_save_path.name} -> {self.filepath.name} (done)"
-        )
+        logger.info(f"Converted {self.blend_save_path.name} -> {self.filename} (done)")
         self.update_progress(
-            f"[bold green]✓ Done: {self.filepath.name} -> {self.glb_save_path.name}[/]",
+            f"[bold green]✓ Done: {self.filename} -> {self.glb_save_path.name}[/]",
             advance=1,
         )
 
@@ -457,12 +472,12 @@ class ConvertSkp(aobject):
         except Exception as e:
             if self.progress_bar:
                 self.update_progress(
-                    f"[red]✗ Failed: {self.filepath.name} ({type(e).__name__}: {e})"
+                    f"[red]✗ Failed: {self.filename} ({type(e).__name__}: {e})"
                 )
                 self.progress_bar.stop_task(self.task_id)
 
             logger.error(
-                f"Conversion of '{self.filepath.name}' failed: ({type(e).__name__}: {e}"
+                f"Conversion of '{self.filename}' failed: ({type(e).__name__}: {e}"
             )
 
             if not suppress_errors:
@@ -480,15 +495,18 @@ async def main():
         expand=True,
     )
 
-    with Live(conversion_progress) as live:
+    with Live(conversion_progress):
         async with httpx.AsyncClient() as client:
+            # pyrefly: ignore[not-async]
             instance = await ConvertSkp(
                 "njc-l2-hall",
                 client,
-                glb_save_folder=Path("reallytesting"),
-                blend_save_folder=Path("/tmp/blender"),
+                config={
+                    "skp_folder": ".skp",
+                    "blend_folder": "/tmp/blender",
+                    "glb_folder": ".glb",
+                },
                 progress_bar=conversion_progress,
-                console=live.console,
             )
 
             await instance.convert()
@@ -498,5 +516,5 @@ if __name__ == "__main__":
     logging.basicConfig(
         format="%(message)s", level=logging.NOTSET, handlers=[RichHandler()]
     )
-    logging.getLogger("httpcore").setLevel(logging.WARN)
+    logging.getLogger("httpcore").setLevel(logging.DEBUG)
     asyncio.run(main())

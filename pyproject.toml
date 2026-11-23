@@ -7,7 +7,6 @@ readme = "README.md"
 
 dependencies = [
   "httpx==0.28",
-  "jinja2",
   "typer==0.28",
   "colorama==0.4.6; os_name == 'nt'",
   "prompt_toolkit >= 3.0"

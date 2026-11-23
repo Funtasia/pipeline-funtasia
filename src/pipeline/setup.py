@@ -11,7 +11,7 @@ from rich import print
 from rich.live import Live
 from rich.text import Text
 
-from .config import write_config
+from .config import write_default_config
 
 app = typer.Typer(name="setup", no_args_is_help=True)
 
@@ -202,7 +202,7 @@ def init_config(
         - `root`: $PWD
         - `blender_exe`: Auto-detect blender executable based on OS.
     """
-    write_config(overwrite=force)
+    write_default_config(overwrite=force)
 
 
 @app.command("all")
@@ -228,4 +228,5 @@ def setup_all(
     """
     clone(force, ssh)
     copy_readme(force)
-    write_config(force)
+    write_default_config(force)
+
