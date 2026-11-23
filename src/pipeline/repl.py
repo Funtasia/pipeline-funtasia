@@ -1,3 +1,4 @@
+import contextlib
 from shlex import quote
 
 import typer
@@ -13,16 +14,16 @@ PROG_NAME = "nipple>>>"
 
 class TyperAppCompleter(Completer):
     def __init__(
-        self, 
-        typer_app: typer.Typer, 
-        prog_name: str = "nipple", 
-        extra_cmds: list[str | tuple[str, str]] | None = None
+        self,
+        typer_app: typer.Typer,
+        prog_name: str = "nipple",
+        extra_cmds: list[str | tuple[str, str]] | None = None,
     ):
         """
         `typer_app` is an instance of typer.Typer() to get completions from.
-        
-        `extra_cmds` gives extra commands not inside `typer_app`, such as 
-        'exit' or 'quit'. Is a list of either the command name or a 
+
+        `extra_cmds` gives extra commands not inside `typer_app`, such as
+        'exit' or 'quit'. Is a list of either the command name or a
         2-element str tuple of the command name with its help text.
         """
         if extra_cmds is None:
@@ -32,7 +33,7 @@ class TyperAppCompleter(Completer):
         self.extra_cmds = extra_cmds
 
     def get_completions(self, document: Document, complete_event):
-        # we show completion regardless whether tab or normal typing, so complete_event unused
+        # show completion regardless of complete_event
         text = document.text_before_cursor
 
         # Separate the text into completed arguments and the word being typed.
@@ -53,7 +54,7 @@ class TyperAppCompleter(Completer):
 
         # completions in typer_app
         for item in completer.get_completions(args, incomplete):
-            res = quote(item.value) if ' ' in item.value else item.value
+            res = quote(item.value) if " " in item.value else item.value
             yield Completion(
                 res,
                 start_position=-len(incomplete),
@@ -63,35 +64,26 @@ class TyperAppCompleter(Completer):
         # completions in extra_cmds
         for extra_cmd in self.extra_cmds:
             if isinstance(extra_cmd, str):
-                cmd, help_text = extra_cmd, ''
+                cmd, help_text = extra_cmd, ""
             else:
                 cmd, help_text = extra_cmd
 
             if cmd.startswith(text):
                 yield Completion(
-                    cmd,
-                    start_position=-len(incomplete),
-                    display_meta=help_text
+                    cmd, start_position=-len(incomplete), display_meta=help_text
                 )
 
 
-def repl(
-    app: typer.Typer,
-    extra_cmds: list[str | tuple[str, str]] | None = None
-):
+def repl(app: typer.Typer, extra_cmds: list[str | tuple[str, str]] | None = None):
     rich_print("Interactive mode. Type a command, 'help' for help, or 'exit' to quit.")
 
     if extra_cmds is None:
-        extra_cmds = [
-            ("help", "Show a help message"), 
-            ("exit", "Exit this REPL")
-        ]
+        extra_cmds = [("help", "Show a help message"), ("exit", "Exit this REPL")]
 
     # '**/' globs can take long time, so run in background thread to not block
-    completer = ThreadedCompleter(TyperAppCompleter(
-        app,
-        extra_cmds=extra_cmds,
-        prog_name=PROG_NAME))
+    completer = ThreadedCompleter(
+        TyperAppCompleter(app, extra_cmds=extra_cmds, prog_name=PROG_NAME)
+    )
     session = PromptSession(message=f"{PROG_NAME} ", completer=completer)
 
     while True:
@@ -112,7 +104,5 @@ def repl(
         # `standalone_mode=True` for consistent formatted output.
         # However, this means app() raises SystemExit, which we also exit
         # the REPL instead of just the command, so we swallow the SystemExit.
-        try:
+        with contextlib.suppress(SystemExit):
             app(args=args, prog_name=PROG_NAME, standalone_mode=True)
-        except SystemExit:
-            pass

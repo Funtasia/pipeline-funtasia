@@ -13,28 +13,33 @@ from rich.text import Text
 
 from .config import write_config
 
-
 app = typer.Typer(name="setup", no_args_is_help=True)
+
 
 @app.callback()
 def callback(
     ctx: typer.Context,
-    no_check_dir: Annotated[bool, typer.Option(
-        "--no-check-dir", 
-        help="Skip confirmation prompt of project root.")
-    ]=False
+    no_check_dir: Annotated[
+        bool,
+        typer.Option(
+            "--no-check-dir",
+            help="Skip confirmation prompt of project root.",
+        ),
+    ] = False,
 ):
     """
     Utility to setup the environment for Funtasia development.
     Run `nipple setup all` to setup everything.
-    
+
     RUN SETUP ONLY AT THE PROJECT ROOT.
     """
 
-    if no_check_dir or '--help' in sys.argv: # assume --help always requests help
+    if no_check_dir or "--help" in sys.argv:  # assume --help always requests help
         return
-    
-    typer.confirm(f"Confirm that '{Path().absolute()}' is the project root?", abort=True)
+
+    typer.confirm(
+        f"Confirm that '{Path().absolute()}' is the project root?", abort=True
+    )
 
 
 def get_target_dir(url):
@@ -46,42 +51,41 @@ def get_target_dir(url):
 def format_line(line: str) -> Text:
     """Format git output with custom highlighting."""
     text = Text(line)
-    
-    text.highlight_regex(r'fatal:', style="bold red")
-    text.highlight_regex(r'Cloning into.*', style="bold blue")
-    text.highlight_regex(r'done.', style="green")
+
+    text.highlight_regex(r"fatal:", style="bold red")
+    text.highlight_regex(r"Cloning into.*", style="bold blue")
+    text.highlight_regex(r"done.", style="green")
 
     # highlight strings and numbers
     text.highlight_regex(r"'.+'", style="green")
-    text.highlight_regex(r'[\d%]+', style="cyan")
-    
+    text.highlight_regex(r"[\d%]+", style="cyan")
+
     return text
 
 
 def clone_single_repo(repo_url: str):
     subproc_args = ["git", "clone", "--progress", "--recursive", repo_url]
     subproc_params = {
-        'env': os.environ|{"GIT_TERMINAL_PROMPT":"0"}, #fix git on windows with 
-        'stdout': subprocess.DEVNULL,
-        'stderr': subprocess.PIPE,
-        'text': True,
-        'bufsize': 1,
+        "env": os.environ | {"GIT_TERMINAL_PROMPT": "0"},  # fix git on windows with
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "bufsize": 1,
     }
     prev_line = ""
 
     with (
         # Popen instead of run to get live cloning progress update
-        subprocess.Popen(subproc_args, **subproc_params) as proc, 
-        Live() as live
-        ):
-
-        for line in proc.stderr: # type: ignore
+        subprocess.Popen(subproc_args, **subproc_params) as proc,
+        Live() as live,
+    ):
+        for line in proc.stderr:
             # non-live progress status lines end with 'done.', so
             # we have the line appear in the live widget first
             # before printing to console above the live display
-            if prev_line.endswith('.'):
+            if prev_line.endswith("."):
                 live.console.print(format_line(prev_line))
-            
+
             line = line.strip()
             live.update(format_line(line))
             prev_line = line
@@ -92,14 +96,21 @@ def clone_single_repo(repo_url: str):
 
 @app.command()
 def clone(
-    force: Annotated[bool, typer.Option(
-        "--force/", "-f/", 
-        help="Replace conflicting directories.")
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force/",
+            "-f/",
+            help="Replace conflicting directories.",
+        ),
     ] = False,
-    ssh: Annotated[bool, typer.Option(
-        "--ssh/--https", 
-        help="Use ssh or https to clone the repositories.")
-    ] = False
+    ssh: Annotated[
+        bool,
+        typer.Option(
+            "--ssh/--https",
+            help="Use ssh or https to clone the repositories.",
+        ),
+    ] = False,
 ):
     """
     Clone the Funtasia repos into the current directory.
@@ -108,7 +119,7 @@ def clone(
     if ssh:
         repo_urls = [
             "git@github.com:Funtasia/app-funtasia.git",
-            "git@github.com:Funtasia/3dfiles-funtasia.git"
+            "git@github.com:Funtasia/3dfiles-funtasia.git",
         ]
     else:
         repo_urls = [
@@ -122,7 +133,10 @@ def clone(
             if force:
                 shutil.rmtree(path, ignore_errors=True)
             else:
-                print(f"[red]fatal:[/red] '{path.absolute()}' already exists and is not an empty directory.")
+                print(
+                    f"[red]fatal:[/] '{path.absolute()}' already exists "
+                    f"and is not an empty directory."
+                )
                 print("[red]Aborted.[/red]")
                 return
 
@@ -130,18 +144,30 @@ def clone(
         exit_code = clone_single_repo(repo)
         if exit_code != 0:
             if ssh:
-                print("[yellow]hint: [/][bright_black]If facing authentication issues with ssh, try using https authentication with 'nipple setup --https' instead[/]")
+                print(
+                    "[yellow]hint: [/][bright_black]If facing authentication "
+                    "issues with ssh, try using https authentication with "
+                    "'nipple setup --https' instead[/]"
+                )
             else:
-                print("[yellow]hint: [/][bright_black]If facing authentication issues with https, try using ssh authentication with 'nipple setup --ssh' instead[/]")
+                print(
+                    "[yellow]hint: [/][bright_black]If facing authentication "
+                    "issues with https, try using ssh authentication with "
+                    "'nipple setup --ssh' instead[/]"
+                )
             print("[red]Aborted.[/red]")
             return
 
 
 @app.command(name="get-readme")
 def copy_readme(
-    force: Annotated[bool, typer.Option(
-        "--force/", "-f/", 
-        help="Override conflicting files.")
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force/",
+            "-f/",
+            help="Override conflicting files.",
+        ),
     ] = False,
 ):
     """
@@ -159,13 +185,18 @@ def copy_readme(
 
 @app.command()
 def init_config(
-    force: Annotated[bool, typer.Option(
-        "--force/", "-f/", 
-        help="Override conflicting files.")
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force/",
+            "-f/",
+            help="Override conflicting files.",
+        ),
     ] = False,
 ):
     """
-    Write the default config file to the current directory, and get default values for certain values.
+    Write the default config file to the current directory, 
+    and get default values for certain values.
 
     Will dynamically set values for:
         - `root`: $PWD
@@ -176,14 +207,21 @@ def init_config(
 
 @app.command("all")
 def setup_all(
-    force: Annotated[bool, typer.Option(
-        "--force/", "-f/", 
-        help="Override conflicting files."
-    )] = False,
-    ssh: Annotated[bool, typer.Option(
-        "--ssh/--https", 
-        help="Whether to use ssh or https to clone the repositories.")
-    ] = False
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force/",
+            "-f/",
+            help="Override conflicting files.",
+        ),
+    ] = False,
+    ssh: Annotated[
+        bool,
+        typer.Option(
+            "--ssh/--https",
+            help="Whether to use ssh or https to clone the repositories.",
+        ),
+    ] = False,
 ):
     """
     Run all of the above.
